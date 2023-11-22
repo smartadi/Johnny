@@ -306,8 +306,8 @@ class Server:
             ew = ref_vrot[2] - vr[2]
 
             # proportional
-            Kpv = 0.05
-            Kpw = 0.01
+            Kpv = 0.01
+            Kpw = 0.1 #0.2
 
             # data_v = np.linalg.norm(ref_vel) + Kpv*ev
             # data_rz = ref_vrot[2] + Kpw * ew
@@ -323,27 +323,31 @@ class Server:
             self.pid_vals[subName][3] = ew
 
             # PID
-            Kdv = 0.001
-            Kdw = 0.001
+            Kdv = 0 #0.01
+            Kdw = 0.05 #0.01
 
-            Kiv = 0.0001
-            Kiw = 0.000
+            Kiv = 0.00001 #0.01
+            Kiw = 0.001 #0.005
 
             data_v = np.linalg.norm(ref_vel) + Kpv*ev + Kdv * self.pid_vals[subName][1][0] + Kiv * self.pid_vals[subName][2][0]
-            data_rz = ref_vrot[2] + Kpw*ew  + Kdw * self.pid_vals[subName][4][0] + Kiw * self.pid_vals[subName][5][0]
+            if self.pid_vals[subName][5][0]>100:
+                self.pid_vals[subName][5][0]=0.0
+            data_rz = ref_vrot[2] + Kpw*ew  + Kdw * self.pid_vals[subName][4][0] + np.minimum(Kiw*1,Kiw * self.pid_vals[subName][5][0])
+            print('ew=',ew)
+            print('iev=',self.pid_vals[subName][5][0])
+            print('dew=',self.pid_vals[subName][4][0])
 
-
-            print('w')
-            print(data_rz)
-            print('v')
-            print(data_v)
+            # print('w')
+            # print(data_rz)
+            # print('v')
+            # print(data_v)
 
             data_rz = int((100 * data_rz)) + 500
             data_v = int(np.linalg.norm(data_v) * 1000) + 100
 
-            print('conversion')
-            print(data_rz)
-            print(data_v)
+            # print('conversion')
+            # print(data_rz)
+            # print(data_v)
 
             if (data_v > 900):
                 data_v = 900
@@ -356,9 +360,9 @@ class Server:
 
             # data_rz = 1800
 
-            print("v sent")
-            print(data_rz)
-            print(data_v)
+            # print("v sent")
+            # print(data_rz)
+            # print(data_v)
 
             self.data.update({subName: [data_v, data_rz]})
 
@@ -392,6 +396,7 @@ class Server:
             # print(name)
             # d = str(self.mover[name][0])+ ',' + str(self.mover[name][1])
             d = str(self.data[name][0]) + "," + str(self.data[name][1])
+            print('d=',d)
             self.xbee.send_data_async(self.remote_devicess[i], d)
             # print('DATA')
             # print(name)
@@ -472,61 +477,71 @@ if __name__ == '__main__':
 
     sp = []
 
+    eps = 100
+    t0 = time.time()
+    print("start")
+    print(t0 - time.time())
+    D=30
+    while( time.time()-t0 < D):
+        print("time")
+        # print(t0 - time.time())
 
+        t = time.time()
+        T = time.time()-t0
+        while(time.time()-t<0.05):
+            # print("loop")
+            # print( time.time()-t)
+            Robot.johnny_update()
+            Robot.send_data()
 
-    for j in range(1000):
-        Robot.johnny_update()
+        print(T)
 
-
-        # print("check")
-        p = np.zeros((1,6))
-        v = np.zeros((1,6))
-
-        r = np.zeros((1, 6))
-        a = np.zeros((1, 6))
-
-        i=0
         for name in Robot.subjectNames:
-            est = Robot.get_estimate()[name]
+            # figure 8
+            # wd = 1
+            # vx = 0.5*wd*math.sin(wd*T)
+            # vy = 0.5*wd*math.cos(wd*T)
+            # v = math.sqrt(vx**2 + vy**2)
+            #
+            # Robot.ref[name] = np.array([[v, 0.0, 0.0], [0.0, 0.0, wd]])
+            # print(v)
 
-            p[0,3*i:3*i+3] = est[0]
-            v[0,3*i:3*i+3] = est[2]
+            # circle
+            wd = 0.0
+            # vx = 0.5*wd*math.sin(wd*T)
+            # vy = 0.5*wd*math.cos(wd*T)
+            v = 0.05
 
-            r[0, 3 * i:3 * i + 3] = est[1]
-            a[0, 3 * i:3 * i + 3] = est[3]
-
-            Robot.ref[name] = np.array([[0.1, 0.0, 0.0], [0.0, 0.0, 0.00]])
-
-
-            i = i + 1
-        Robot.send_data()
-        # print(v)
-        pos = np.append(pos, [p[0]], axis=0)
-        vel = np.append(vel, [v[0]], axis=0)
-        rot = np.append(rot, [r[0]], axis=0)
-        rvel = np.append(rvel, [a[0]], axis=0)
+            Robot.ref[name] = np.array([[v, 0.0, 0.0], [0.0, 0.0, wd]])
+            print(v)
 
 
-    sp = np.linalg.norm(vel,2, axis = 1)
+    # stop the robot
+    for name in Robot.subjectNames:
+        Robot.ref[name] = np.array([[0, 0.0, 0.0], [0.0, 0.0, 0.0]])
 
+    Robot.johnny_update()
+    Robot.send_data()
 
     vb = Robot.plotterv
     ve = Robot.plotterr
 
+    sp = np.linalg.norm(vb, axis=1)
+
     plt.plot(vb)
+    plt.title("velocity")
+    plt.show()
+
+
+    plt.plot(ve)
+    plt.title("omega")
     plt.show()
 
     plt.plot(sp)
+    plt.title("Speed")
     plt.show()
 
-    plt.plot(ve)
-    plt.show()
 
-    plt.plot(pos)
-    plt.show()
-
-    plt.plot(rot)
-    plt.show()
 
 
 
