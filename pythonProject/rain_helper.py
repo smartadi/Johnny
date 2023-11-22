@@ -68,7 +68,8 @@ def get_Vframe(client):
 
 def xbee_init():
     # Coordinator connected to server
-    PORT = "COM3"
+    # CHECK THIS
+    PORT = "COM4"
     BAUD_RATE = 115200
     # Test data
     # Router NODE ID (set to Johnny name)
@@ -90,7 +91,7 @@ def xbee_init():
         print("No connection")
 
     # Start Xbeagent, heading, omegae
-    time.sleep(1)
+    #time.sleep(1)
     print('Xbee Initialised')
     status = 0
     return device, remote_device
@@ -115,13 +116,13 @@ class Server:
         self.cycle()
 
     def vicon_update(self):
-        time.sleep(0.1)
+        # time.sleep(0.1)
         self.vicon.GetFrame()
         pos = self.vicon.GetSegmentGlobalTranslation(self.subjectName[0], self.segmentName[0])[0]
         rot = self.vicon.GetSegmentGlobalRotationEulerXYZ(self.subjectName[0], self.segmentName[0])[0]
         data_rz = int((10 * 180 * (1 / np.pi) * rot[2])) + 1800
         print(data_rz)
-        ref = np.array([0, 0, 0])
+        ref = np.array([0, 0, 0]) #reference point:
         data_v = (ref - np.array([pos[0], pos[1], pos[2]], dtype="float16"))
         data_v = int(np.linalg.norm(data_v) * 255 / 3000)
         print(data_v)
