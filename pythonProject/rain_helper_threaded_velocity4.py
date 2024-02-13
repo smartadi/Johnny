@@ -177,13 +177,13 @@ def vel_filter(f, m):
     b2 = - 1.5622
     b3 = 0.6413
     y0 = -b2 * y1 - b3 * y2 + a1 * x0 + a2 * x1 + a3 * x2
-    # print("filtered")
-    # print(y0)
-    # print(y1)
-    # print(y2)
-    # print(x0)
-    # print(x1)
-    # print(x2)
+    print("filtered")
+    print(y0)
+    print(y1)
+    print(y2)
+    print(x0)
+    print(x1)
+    print(x2)
     return np.array([y0, y1, x0, x1])
 
 
@@ -258,6 +258,7 @@ class Server:
         self.data = dict()
         self.packet = None
         self.init_var()
+        self.pos2plot=np.zeros([1,3])
 
 
         # Runs on a parallel thread all the time. It works for now, I don't know how
@@ -281,6 +282,8 @@ class Server:
             pos = np.asarray(self.vicon.GetSegmentGlobalTranslation(subName, subName)[0])
             rot = np.asarray(self.vicon.GetSegmentGlobalRotationEulerXYZ(subName, subName)[0])
 
+            #self.pos2plot=np.append(self.pos2plot, (pos),axis=0)
+            print('Pos=',pos)
             ref_vrot = self.ref[subName][1]
             ref_vel = self.ref[subName][0]
 
@@ -301,13 +304,14 @@ class Server:
             Rz = R.from_euler('z', rot[2], degrees=False).as_matrix()
 
             v = self.vfilter[subName][0]/1000  # convert to m/s
+            print("Vel=",v*1000)
             vr = self.rfilter[subName][0]
             ev = np.linalg.norm(ref_vel) - np.linalg.norm(v)
             ew = ref_vrot[2] - vr[2]
 
             # proportional
-            Kpv = 0.01
-            Kpw = 0.1 #0.2
+            Kpv = 0.05
+            Kpw = 0 #0.2
 
             # data_v = np.linalg.norm(ref_vel) + Kpv*ev
             # data_rz = ref_vrot[2] + Kpw * ew
@@ -323,19 +327,23 @@ class Server:
             self.pid_vals[subName][3] = ew
 
             # PID
-            Kdv = 0 #0.01
-            Kdw = 0.05 #0.01
+            Kdv = 0.01 #0.01
+            Kdw = 0.00 #0.01
+
+            #if self.chk==1 and ev<1:
+             #   self.pid_vals[subName][2][0]=0
+              #  self.chk=2
+
+
 
             Kiv = 0.00001 #0.01
-            Kiw = 0.001 #0.005
+            Kiw = 0.0000 #0.005
 
             data_v = np.linalg.norm(ref_vel) + Kpv*ev + Kdv * self.pid_vals[subName][1][0] + Kiv * self.pid_vals[subName][2][0]
-            if self.pid_vals[subName][5][0]>100:
-                self.pid_vals[subName][5][0]=0.0
             data_rz = ref_vrot[2] + Kpw*ew  + Kdw * self.pid_vals[subName][4][0] + np.minimum(Kiw*1,Kiw * self.pid_vals[subName][5][0])
-            print('ew=',ew)
-            print('iev=',self.pid_vals[subName][5][0])
-            print('dew=',self.pid_vals[subName][4][0])
+            #print('ev=',ev)
+            #print('iev=',self.pid_vals[subName][2][0])
+            #print('dev=',self.pid_vals[subName][1][0])
 
             # print('w')
             # print(data_rz)
@@ -481,7 +489,7 @@ if __name__ == '__main__':
     t0 = time.time()
     print("start")
     print(t0 - time.time())
-    D=30
+    D=5
     while( time.time()-t0 < D):
         print("time")
         # print(t0 - time.time())
@@ -510,10 +518,10 @@ if __name__ == '__main__':
             wd = 0.0
             # vx = 0.5*wd*math.sin(wd*T)
             # vy = 0.5*wd*math.cos(wd*T)
-            v = 0.05
+            v = 0.1
 
             Robot.ref[name] = np.array([[v, 0.0, 0.0], [0.0, 0.0, wd]])
-            print(v)
+
 
 
     # stop the robot
@@ -525,6 +533,8 @@ if __name__ == '__main__':
 
     vb = Robot.plotterv
     ve = Robot.plotterr
+    pos=Robot.plotterx
+
 
     sp = np.linalg.norm(vb, axis=1)
 
@@ -532,13 +542,25 @@ if __name__ == '__main__':
     plt.title("velocity")
     plt.show()
 
+    plt.plot(pos)
+    plt.title("Position")
+    plt.show()
+
 
     plt.plot(ve)
     plt.title("omega")
     plt.show()
 
+    kern=np.ones(50)/50
+    smooth_sp=np.convolve(sp,kern, mode='valid')
     plt.plot(sp)
+    lsp=len(sp)
+    des_vel=1000*v*np.ones(lsp)
+    plt.plot(des_vel)
     plt.title("Speed")
+    plt.show()
+
+    plt.plot(Robot.pos2plot[:,0])
     plt.show()
 
 

@@ -309,9 +309,6 @@ class Server:
             Kpv = 0.05
             Kpw = 0.01
 
-            # data_v = np.linalg.norm(ref_vel) + Kpv*ev
-            # data_rz = ref_vrot[2] + Kpw * ew
-
 
             self.pid_vals[subName][1] = ev - self.pid_vals[subName][0]
             self.pid_vals[subName][2] = ev + self.pid_vals[subName][2]
