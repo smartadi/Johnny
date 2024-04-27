@@ -20,7 +20,7 @@ from time import time
 from threading import Thread, Event
 from time import sleep
 from threading import Lock
-from scipy.signal import buttap, lp2hp_zpk, bilinear_zpk, zpk2tf, butter
+from scipy.signal import buttap, lp2hp_zpk, bilinear_zpk, zpk2tf, butter, filtfilt
 import matplotlib.pyplot as plt
 import math
 from scipy.spatial.transform import Rotation as R
@@ -163,8 +163,51 @@ def xbee_init(names):
     return xbee, remote_devicess, b
 
 
+def lpf(f, m):
+    y1 = f[0, :]
+    y2 = f[1, :]
+    x0 = m
+    x1 = f[2, :]
+    x2 = f[3, :]
 
+    a1 = 0
+    a2 = 7.8387
+    a3 = -7.8387
+    b1 = 1.0000
+    b2 = - 1.5622
+    b3 = 0.6413
+    y0 = -b2 * y1 - b3 * y2 + a1 * x0 + a2 * x1 + a3 * x2
+    #print("filtered")
+    # print(y0)
+    # print(y1)
+    # print(y2)
+    # print(x0)
+    # print(x1)
+    # print(x2)
+    return np.array([y0, y1, x0, x1])
 
+def vel_filter2(f, m):
+    y1 = f[0, :]
+    y2 = f[1, :]
+    x0 = m
+    x1 = f[2, :]
+    x2 = f[3, :]
+
+    a1 = 0
+    a2 = 7.8387
+    a3 = -7.8387
+    b1 = 1.0000
+    b2 = - 1.5622
+    b3 = 0.6413
+    y0 = -b2 * y1 - b3 * y2 + a1 * x0 + a2 * x1 + a3 * x2
+    #print("filtered")
+    # print(y0)
+    # print(y1)
+    # print(y2)
+    # print(x0)
+    # print(x1)
+    # print(x2)
+    return np.array([y0, y1, x0, x1])
 def vel_filter(f, m):
     y1 = f[0, :]
     y2 = f[1, :]
@@ -232,6 +275,46 @@ def om_filter(f, m):
     f[:, :2] = 0
     return f
 
+def calculate_velocity(positions, timestamps):
+    velocities = {}
+    for subName, pos_list in positions.items():
+        pos_array = np.array(pos_list)
+        time_array = np.array(timestamps)
+
+        # Calculate velocity as derivative of position
+        dt = np.diff(time_array)
+        dx = np.diff(pos_array, axis=0)
+        velocity = np.divide(dx, dt[:, None], out=np.zeros_like(dx), where=dt[:, None]!=0)  # Avoid division by zero
+
+        # Apply Butterworth low-pass filter
+        b, a = butter(N=3, Wn=0.05)  # adjust as needed
+        filtered_velocity = np.zeros_like(velocity)
+        for i in range(3):  # filter for each spatial dimension (x, y, z)
+            filtered_velocity[:, i] = filtfilt(b, a, velocity[:, i])
+
+        velocities[subName] = filtered_velocity
+    return velocities
+
+
+def calculate_raw_velocity(pos, prevpos, prevtime):
+    #x_cur, y_cur, z_cur = pos
+    x_cur = pos[0]
+    y_cur = pos[1]
+    z_cur = pos[2]
+    #x_prev, y_prev, z_prev = prevpos
+    x_prev = prevpos[0]
+    y_prev = prevpos[1]
+    z_prev = prevpos[2]
+
+    delta_t = prevtime - time.time()
+
+    vx = (x_cur - x_prev) / delta_t
+    vy = (y_cur - y_prev) / delta_t
+    vz = (z_cur - z_prev) / delta_t
+
+    velocity_magnitude = math.sqrt(vx ** 2 + vy ** 2 + vz ** 2)
+    print("type = ", type(velocity_magnitude))
+    return velocity_magnitude
 
 class Server:
 
@@ -250,6 +333,10 @@ class Server:
         self.vfilter = dict()
         self.rfilter = dict()
         self.pid_vals = dict()
+
+        self.prevpos = [0,0,0]
+        self.prevtime = time.time()
+        self.rawvel = 0
 
         # self.xbee, self.remote_devicess, self.remote_names = xbee_init()  # This returns the xbee device,remote network, agents on the network
 
@@ -275,6 +362,8 @@ class Server:
         # self.cycle()
 
         self.filtercycle()
+        self.live_update2(True)
+        self.plot = True
 
     def johnny_update(self):
         # sleep(0.01)
@@ -289,19 +378,16 @@ class Server:
             ref_vrot = self.ref[subName][1]
             ref_vel = self.ref[subName][0]
 
-            # print(pos)
-            # print(rot)
-            # print(self.vfilter[subName][0])
-            # print(self.vfilter[subName])
-            #self.mover[subName] = np.array([pos, rot, self.vfilter[subName][0], self.rfilter[subName][0]])
-            self.vfilter.update({subName: vel_filter(self.vfilter[subName], pos)})
+            rawvel = calculate_raw_velocity(pos, self.prevpos, self.prevtime)
+            print(rawvel)
+
+            self.prevpos = pos
+            self.prevtime = time.time()
+            self.rawvel = rawvel
+
+            self.vfilter.update({subName: vel_filter2(self.vfilter[subName], pos)})
             self.rfilter.update({subName: om_filter(self.rfilter[subName], rot)})
             self.mover[subName] = np.array([pos, rot, self.vfilter[subName][0], self.rfilter[subName][0]])
-            # print(self.vfilter[subName])
-            # self.rfilter.update({subName: om_filter(self.rfilter[subName], rot)})
-
-
-            # = scipy_low(self.cutoff_freq, self.sample_time, self.vfilter[subName], pos)
 
             Rz = R.from_euler('z', rot[2], degrees=False).as_matrix()
 
@@ -311,26 +397,26 @@ class Server:
             ev = np.linalg.norm(ref_vel) - np.linalg.norm(v)
             ew = ref_vrot[2] - vr[2]
 
+
+
             # proportional
-            Kpv = 0.05
+            Kpv = 0.1
             Kpw = 0 #0.2
 
             # data_v = np.linalg.norm(ref_vel) + Kpv*ev
             # data_rz = ref_vrot[2] + Kpw * ew
 
-
             self.pid_vals[subName][1] = ev - self.pid_vals[subName][0]
             self.pid_vals[subName][2] = ev + self.pid_vals[subName][2]
             self.pid_vals[subName][0] = ev
-
 
             self.pid_vals[subName][4] = ew - self.pid_vals[subName][3]
             self.pid_vals[subName][5] = ew + self.pid_vals[subName][5]
             self.pid_vals[subName][3] = ew
 
             # PID
-            Kdv = 0.01 #0.01
-            Kdw = 0.01 #0.01
+            Kdv = 0.0 #0.01
+            Kdw = 0.0 #0.01
 
             #if self.chk==1 and ev<1:
              #   self.pid_vals[subName][2][0]=0
@@ -338,19 +424,19 @@ class Server:
 
 
 
-            Kiv = 0.01 #0.01
-            Kiw = 0.005 #0.005
+            Kiv = 0.0 #0.01
+            Kiw = 0.0 #0.005
 
             data_v = np.linalg.norm(ref_vel) + Kpv*ev + Kdv * self.pid_vals[subName][1][0] + Kiv * self.pid_vals[subName][2][0]
-            data_rz = ref_vrot[2] + Kpw*ew  + Kdw * self.pid_vals[subName][4][0] + np.minimum(Kiw*1,Kiw * self.pid_vals[subName][5][0])
+            data_rz = ref_vrot[2] + Kpw*ew + Kdw * self.pid_vals[subName][4][0] + np.minimum(Kiw*1,Kiw * self.pid_vals[subName][5][0])
             #print('ev=',ev)
             #print('iev=',self.pid_vals[subName][2][0])
             #print('dev=',self.pid_vals[subName][1][0])
 
-            # print('w')
-            # print(data_rz)
-            # print('v')
-            # print(data_v)
+            #print('w')
+            #print(data_rz)
+            #print('v')
+            #print(data_v)
 
             data_rz = int((100 * data_rz)) + 500
             data_v = int(np.linalg.norm(data_v) * 1000) + 100
@@ -385,7 +471,199 @@ class Server:
             self.plotterx = np.append(self.plotterx, [self.mover[subName][0]], axis=0)
             self.plotterth = np.append(self.plotterth, [self.mover[subName][1]], axis=0)
 
+    @threaded
+    def live_update(self,blit=False):
+        x = np.linspace(0, 50., num=100)
+        X, Y = np.meshgrid(x, x)
+        fig = plt.figure()
+        ax1 = fig.add_subplot(2, 1, 1)
+        ax2 = fig.add_subplot(2, 1, 2)
 
+        line1, = ax1.plot([], lw=3)
+        text1 = ax1.text(0.8, 0.5, "")
+
+        line2, = ax2.plot([], lw=3)
+        text2 = ax2.text(0.8, 0.5, "")
+
+        ax1.set_xlim(x.min(), x.max())
+        ax1.set_ylim([-1.1, 1.1])
+
+        ax2.set_xlim(x.min(), x.max())
+        ax2.set_ylim([-1.1, 1.1])
+
+        fig.canvas.draw()  # note that the first draw comes before setting data
+
+        if blit:
+            # cache the background
+            axbackground = fig.canvas.copy_from_bbox(ax1.bbox)
+            ax2background = fig.canvas.copy_from_bbox(ax2.bbox)
+
+        plt.show(block=False)
+
+        #t_start = time.time()
+        k = 0.
+
+        for i in np.arange(10000):
+            line1.set_data(x, np.sin(x / 3. + k))
+            line2.set_data(x, np.sin(x / 3. + k))
+            #tx = 'Mean Frame Rate:\n {fps:.3f}FPS'.format(fps=((i + 1) / (time.time() - t_start)))
+            #text1.set_text(tx)
+            #text2.set_text(tx)
+            # print tx
+            k += 0.11
+            if blit:
+                # restore background
+                fig.canvas.restore_region(axbackground)
+                fig.canvas.restore_region(ax2background)
+                #store_region(ax2background)
+
+                # redraw just the points
+                ax1.draw_artist(line1)
+                #ax1.draw_artist(text1)
+                ax2.draw_artist(line2)
+                #ax2.draw_artist(text2)
+
+                # fill in the axes rectangle
+                fig.canvas.blit(ax1.bbox)
+                fig.canvas.blit(ax2.bbox)
+
+                # in this post http://bastibe.de/2013-05-30-speeding-up-matplotlib.html
+                # it is mentionned that blit causes strong memory leakage.
+                # however, I did not observe that.
+
+            else:
+                # redraw everything
+                fig.canvas.draw()
+
+            fig.canvas.flush_events()
+            # alternatively you could use
+            # plt.pause(0.000000000001)
+            # however plt.pause calls canvas.draw(), as can be read here:
+            # http://bastibe.de/2013-05-30-speeding-up-matplotlib.html
+
+    @threaded
+    def live_update2(self, blit=False):
+        x = np.linspace(0, 50., num=100)
+        Vx = np.zeros(x.shape)
+        Vr = np.zeros(x.shape)
+        Vxx = np.zeros(x.shape)
+        Vyy = np.zeros(x.shape)
+        Vth = np.zeros(x.shape)
+
+        fig = plt.figure(figsize=(15,5))
+        ax1 = fig.add_subplot(2, 1, 1)
+        ax2 = fig.add_subplot(2, 1, 2)
+        #ax3 = fig.add_subplot(5, 1, 3)
+        #ax4 = fig.add_subplot(5, 1, 4)
+        #ax5 = fig.add_subplot(5, 1, 5)
+
+        line1, = ax1.plot([], lw=3)
+        line2, = ax2.plot([], lw=3)
+        #line3, = ax3.plot([], lw=3)
+        #line4, = ax4.plot([], lw=3)
+        #line5, = ax5.plot([], lw=3)
+
+
+        ax1.set_xlim(x.min(), x.max())
+        ax1.set_ylim([0, 500])
+
+        ax2.set_xlim(x.min(), x.max())
+        ax2.set_ylim([-3, 3])
+
+        #ax3.set_xlim(x.min(), x.max())
+        #ax3.set_ylim([-1500, 1500])
+
+        #ax4.set_xlim(x.min(), x.max())
+        #ax4.set_ylim([-1500, 1500])
+
+        #ax5.set_xlim(x.min(), x.max())
+        #ax5.set_ylim([-10, 10])
+
+        fig.canvas.draw()  # note that the first draw comes before setting data
+
+        if blit:
+            # cache the background
+            ax1background = fig.canvas.copy_from_bbox(ax1.bbox)
+            ax2background = fig.canvas.copy_from_bbox(ax2.bbox)
+            #ax3background = fig.canvas.copy_from_bbox(ax3.bbox)
+            #ax4background = fig.canvas.copy_from_bbox(ax4.bbox)
+            #ax5background = fig.canvas.copy_from_bbox(ax5.bbox)
+
+        plt.show(block=False)
+
+        # t_start = time.time()
+        k = 0.
+
+        #for i in np.arange(10000):
+        while(self.plot == True):
+            from scipy.ndimage import shift
+
+            #v = self.mover[self.subjectNames[0]][2]  # convert to m/s
+            v = self.rawvel  # convert to m/s
+            r = self.mover[self.subjectNames[0]][3]
+
+            xx = self.mover[self.subjectNames[0]][0]
+            th = self.mover[self.subjectNames[0]][1]
+
+            #print("vel:::")
+            #print(v)
+
+            #print("rot:::")
+            #print(r)
+
+            #print("pos:::")
+            #print(xx)
+
+            #print("th:::")
+            #print(th)
+            #vr = self.rfilter[subName][0]
+            #x =
+            Vx = np.concatenate((Vx[1:],[np.linalg.norm(v)]))
+            Vr = np.concatenate((Vr[1:],[r[2]]))
+            Vxx = np.concatenate((Vxx[1:],[xx[0]]))
+            Vyy = np.concatenate((Vyy[1:],[xx[1]]))
+            Vth = np.concatenate((Vth[1:],[th[2]]))
+
+
+            line1.set_data(x, Vx)
+            line2.set_data(x, Vr)
+            #line3.set_data(x, Vxx)
+            #line4.set_data(x, Vyy)
+            #line5.set_data(x, Vth)
+            #line2.set_data(x, np.sin(x / 3. + k))
+            # tx = 'Mean Frame Rate:\n {fps:.3f}FPS'.format(fps=((i + 1) / (time.time() - t_start)))
+            # text1.set_text(tx)
+            # text2.set_text(tx)
+            # print tx
+            k += 0.11
+            if blit:
+                # restore background
+                fig.canvas.restore_region(ax1background)
+                fig.canvas.restore_region(ax2background)
+                #fig.canvas.restore_region(ax3background)
+                #fig.canvas.restore_region(ax4background)
+                #fig.canvas.restore_region(ax5background)
+
+                # redraw just the points
+                ax1.draw_artist(line1)
+                ax2.draw_artist(line2)
+                #ax1.draw_artist(line3)
+                #ax2.draw_artist(line4)
+                #ax1.draw_artist(line5)
+
+
+                # fill in the axes rectangle
+                fig.canvas.blit(ax1.bbox)
+                fig.canvas.blit(ax2.bbox)
+                #fig.canvas.blit(ax3.bbox)
+                #fig.canvas.blit(ax4.bbox)
+                #fig.canvas.blit(ax5.bbox)
+
+            else:
+
+                fig.canvas.draw()
+
+            fig.canvas.flush_events()
 
 
     def get_agents(self):
@@ -405,9 +683,9 @@ class Server:
             # print(self.mover[name])
             # print(name)
             # d = str(self.mover[name][0])+ ',' + str(self.mover[name][1])
-            d = str(self.data[name][0]) + "," + str(self.data[name][1])
+            #d = str(self.data[name][0]) + "," + str(self.data[name][1])
             #print('d=',d)
-            self.xbee.send_data_async(self.remote_devicess[i], d)
+            #self.xbee.send_data_async(self.remote_devicess[i], d)
             # print('DATA')
             # print(name)
             # print(self.remote_devicess[i])
@@ -456,21 +734,24 @@ class Server:
             self.plotterx = np.array([[0, 0, 0]])
             self.plotterth = np.array([[0, 0, 0]])
 
-        eps = 10
-        while eps > 0.1:
+        veps = 1
+        reps = 1
+        while veps > 0.1 and reps > 0.1:
             #eps = 0
             self.johnny_update()
 
             for name in self.subjectNames:
                 # eps = eps + np.linalg.norm(self.vfilter[name][0]) + np.linalg.norm(self.rfilter[name][0])
-                eps =  np.linalg.norm(self.vfilter[name][0]) + np.linalg.norm(self.rfilter[name][0])
-                print(eps)
+                veps = np.linalg.norm(self.vfilter[name][0])
+                reps = np.linalg.norm(self.rfilter[name][0])
+                print(veps)
+                print(reps)
 
-                self.mover[name] = np.zeros((4, 3))
-                self.plotterv = np.array([[0, 0, 0]])
-                self.plotterr = np.array([[0, 0, 0]])
-                self.plotterx = np.array([[0, 0, 0]])
-                self.plotterth = np.array([[0, 0, 0]])
+        # self.mover[name] = np.zeros((4, 3))
+        # self.plotterv = np.array([[0, 0, 0]])
+        # self.plotterr = np.array([[0, 0, 0]])
+        # self.plotterx = np.array([[0, 0, 0]])
+        # self.plotterth = np.array([[0, 0, 0]])
 
 
 
@@ -492,7 +773,8 @@ if __name__ == '__main__':
     t0 = time.time()
     print("start")
     print(t0 - time.time())
-    D=5
+    D = 60
+
     while( time.time()-t0 < D):
         #print("time")
         # print(t0 - time.time())
@@ -521,9 +803,10 @@ if __name__ == '__main__':
             wd = 0
             # vx = 0.5*wd*math.sin(wd*T)
             # vy = 0.5*wd*math.cos(wd*T)
-            v = 0.0
+            v = 0
 
             Robot.ref[name] = np.array([[v, 0.0, 0.0], [0.0, 0.0, wd]])
+    Robot.plot = False
 
 
 
@@ -531,8 +814,12 @@ if __name__ == '__main__':
     for name in Robot.subjectNames:
         Robot.ref[name] = np.array([[0, 0.0, 0.0], [0.0, 0.0, 0.0]])
 
-    Robot.johnny_update()
-    Robot.send_data()
+    t = time.time()
+    while (time.time() - t < 1):
+        Robot.johnny_update()
+        Robot.send_data()
+
+        # live_update_demo(False) # 28 fps
 
     vb = Robot.plotterv
     ve = Robot.plotterr
@@ -558,7 +845,10 @@ if __name__ == '__main__':
     smooth_sp=np.convolve(sp,kern, mode='valid')
     plt.plot(sp)
     lsp=len(sp)
-    des_vel=1000*v*np.ones(lsp)
+
+    v=1
+
+    des_vel=100*v*np.ones(lsp)
     plt.plot(des_vel)
     plt.title("Speed")
     plt.show()
