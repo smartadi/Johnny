@@ -418,77 +418,78 @@ class Server:
         print('Vicon frame')
 
     def send_data(self):
-        # print("devices: ", self.remote_devicess)
-        follower = "Johnny08"
-        leader = "Johnny07"
+        print("names: ", self.subjectNames)
+        agents = self.subjectNames
+        num_agents = len(agents)
 
-        follower_pos, follower_ori = self.mover[follower][:2]  # first two elems are pos and ori
-        leader_pos, _ = self.mover[leader][:2]
+        for i in range(num_agents):
+            follower_name = agents[i]
+            print("follower: ", follower_name)
+            leader_name = agents[(i + 1) % num_agents]  # Circular next agent
+            print("leader: ", leader_name)
 
-        dir_vec = leader_pos - follower_pos
-        dir_mag = np.linalg.norm(dir_vec)
-        desired_angle = np.arctan2(dir_vec[1], dir_vec[0])
+            # Get follower's position and orientation
+            follower_pos, follower_ori = self.mover[follower_name][:2]  # first two elems are pos and ori
 
-        follower_yaw = follower_ori[2]
+            # Get leader's position
+            leader_pos, _ = self.mover[leader_name][:2]  # first two elems are pos and ori
 
-        # this just normalizes angles to range [-pi, pi]
-        desired_angle = np.mod(desired_angle + np.pi, 2 * np.pi) - np.pi
-        follower_yaw = np.mod(follower_yaw + np.pi, 2 * np.pi) - np.pi
+            dir_vec = leader_pos - follower_pos
+            dist = np.linalg.norm(dir_vec)
+            dir_ang = np.arctan2(dir_vec[1], dir_vec[0])
 
-        angle_error = desired_angle - follower_yaw
-        dist_error = np.linalg.norm(dir_vec)  # distance formula
+            follower_yaw = follower_ori[2]
 
-        # PD controller for angular velocity
-        Kp_angular = 10  # proportional gain for angular velocity
-        Kp_forward = 0.1  # proportional gain for forward velocity
+            angle_diff = dir_ang - follower_yaw
 
-        Kp = 150
+            # ensure angle is within range -pi to pi
+            angle_diff = (angle_diff + np.pi) % (2 * np.pi) - np.pi
 
-        current_velocity = np.linalg.norm(self.vfilter[follower][0]) / 1000
-        print("curr vel: ", current_velocity)
-        vel_ref = -1.5
-        vel_error = vel_ref - current_velocity
-        print("vel error: ", vel_error)
+            if angle_diff < 0:
+                angle_diff += np.pi
+            else:
+                angle_diff -= np.pi
 
-        current_omega = np.linalg.norm(self.rfilter[follower][0])
-        print("curr omega: ", current_omega)
-        omg_ref = -5
-        omg_error = omg_ref - current_omega
-        print("omg error: ", omg_error)
+            angle_error = angle_diff
+            # -100 for size of robots, -500 for distance maintenance
+            dist_error = (np.linalg.norm(dir_vec) - 100 - 500) / 1000  # in meters (I measured this)
+            print("angle error: ", angle_error)
+            # print("dist error: ", dist_error)
 
-        # motor1Speed = 150 + (Kp_forward * vel_error) - (Kp_angular * omg_error)
-        # motor2Speed = 150 + (Kp_forward * vel_error) + (Kp_angular * omg_error)
+            K_d = 2
+            K_a = 1
 
-        motor1Speed = (Kp * vel_error) + (Kp_forward * vel_error)
-        motor2Speed = (Kp * vel_error) + (Kp_forward * vel_error)
+            v_des = K_d * dist_error
+            w_des = K_a * angle_error
 
-        # motor1Speed = 100 + (Kp_angular * angle_error)
-        # motor2Speed = 0.9*(100 - (Kp_angular * angle_error))
+            # PD controller for angular velocity
+            Kp_angular = 50  # proportional gain for angular velocity
+            Kp_forward = 0.1  # proportional gain for forward velocity
 
-        # self.prev_angle_diff = angle_diff
+            K = 150  # the motor command to go 1 m/s
 
-        # max_linear_vel = 0.2 # IDK figure this out
-        # desired_linear_vel = max_linear_vel * (1 - np.exp(-dir_mag / 2))  # gradually reduce velocity as getting closer to target
+            current_velocity = np.linalg.norm(self.vfilter[follower_name][0]) / 1000
+            # vel_ref = v_des
+            vel_ref = 1
+            vel_error = vel_ref - current_velocity
 
-        # send it over (must be device 1, since 0 is always NONE for some reason...)
-        self.xbee.send_data(self.remote_devicess[1], f"{motor1Speed},{motor2Speed}")
-        print("motor 1: ", motor1Speed)
-        print("motor 2: ", motor2Speed)
+            if dist_error < 0.25:
+                vel_ref *= (dist_error / 0.25)  # Scale down velocity based on distance error
 
-        # i=0
-        # for name in self.remote_names:
-        #     # calculate bearing
-        #     # Rz = self.data[name][1]
-        #     # dist = np.linalg.norm(Rz)
-        #     # bearing = np.arctan2(Rz[1], Rz[0])
-        #     print("name ", i, ": ", name)
+            current_omega = np.linalg.norm(self.rfilter[follower_name][0])
+            omg_error = w_des
+            # print("base: ", (K * vel_ref))
+            print("vel term: ", (Kp_forward * vel_error))
+            print("omg term: ", (Kp_angular * omg_error))
 
-        #     # d = str(self.mover[name][0])+ ',' + str(self.mover[name][1])
-        #     d = str(self.data[name][0]) + "," + str(self.data[name][1])
-        #     print('d=',d)
-        #     # self.xbee.send_data_async(self.remote_devicess[i], d)
+            # need to send vel_ref and vel_error, omg_ref and omg_error so that it works with multi-agent
+            # but later
+            motor1Speed = (K * vel_ref) + (Kp_forward * vel_error) + (Kp_angular * omg_error)
+            motor2Speed = (K * vel_ref) + (Kp_forward * vel_error) - (Kp_angular * omg_error)
 
-        #     i=i+1
+            # send it over (must be device 1, since 0 is always NONE for some reason... Edit: its 0 again idk :( )
+            print("sending to: ", self.subjectNames[i], self.remote_devicess[i])
+            self.xbee.send_data(self.remote_devicess[i], f"{motor1Speed},{motor2Speed}")
 
     @threaded
     def cycle(self):

@@ -56,9 +56,9 @@ float theta = 0;
 float Kwr = 1000;
 float Kwl = 1000;
 
-float Kvr = 2;
+float Kvr = 1;
 //float Kvl = 0.9;
-float Kvl = 1.8;
+float Kvl = 0.9;
 
 
 
@@ -159,14 +159,14 @@ void loop()
 
 
         
-        nss.print("Velocity error : ");
+        nss.println("Velocity error : ");
         nss.print(v);
-        nss.print("vt : ");
-        nss.print(vt);
+        // nss.print("vt : ");
+        // nss.print(vt);
 
         nss.print("   Omega error : ");
-        nss.println(theta);
-        nss.println(w);  
+        nss.print(theta);
+        // nss.println(w);  
 
    
    L = Kvl*v - Kwl*theta;
