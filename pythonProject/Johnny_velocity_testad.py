@@ -35,6 +35,7 @@ PORT = "COM4"
 BAUD_RATE = 115200
 
 
+
 def callback_discovery_finished(status):
     if status == NetworkDiscoveryStatus.SUCCESS:
         print("  Discovery process finished successfully.")
@@ -128,9 +129,6 @@ def vicon_init():
     print('Vicon Initialised')  # Press Ctrl+F8 to toggle the breakpoint.
     return client, segmentName, subjectName, idata
 
-
-def get_Vframe(client):
-    return client.GetFrame()
 def xbee_init(names):
     xbee_network = None
 
@@ -164,6 +162,7 @@ def xbee_init(names):
 
 
 def lpf(f, m):
+    # using vicon filter we do not need a lpf
     y1 = f[0, :]
     y2 = f[1, :]
     x0 = m
@@ -177,21 +176,11 @@ def lpf(f, m):
     b2 = - 1.5622
     b3 = 0.6413
     y0 = -b2 * y1 - b3 * y2 + a1 * x0 + a2 * x1 + a3 * x2
-    #print("filtered")
-    # print(y0)
-    # print(y1)
-    # print(y2)
-    # print(x0)
-    # print(x1)
-    # print(x2)
+
     return np.array([y0, y1, x0, x1])
 
 def vel_filter2(f, m):
-    # y1 = m
-    # y2 = f[0, :]
-    # y3 = f[1, :]
-    # y4 = f[2, :]
-
+    # Simple order 3 Derivative filter
     a1 = 0.101
     a2 = 0.462
     a3 = -0.462
@@ -204,18 +193,12 @@ def vel_filter2(f, m):
     # a5 = -0.124
 
     y0 = a1 * m + a2 * f[0,:] + a3 * f[1,:] + a4 * f[2,:] # + a5 * f[3,:]
-    # f[3, :] = f[2, :]
+
     f[2, :] = f[1, :]
     f[1, :] = f[0, :]
     f[0, :] = m
-    #print("filtered")
-    # print(y0)
-    # print(y1)
-    # print(y2)
-    # print(x0)
-    # print(x1)
-    # print(x2)
     return y0, f
+
 def vel_filter(f, m):
     y1 = f[0, :]
     y2 = f[1, :]
@@ -271,19 +254,12 @@ def om_filter(f, m):
         x1 = x11
 
     y0 = -b2 * y1 - b3 * y2 + a1 * x0 + a2 * x1 + a3 * x22
-
-    # print("filtered")
-    # print(y0)
-    # print(y1)
-    # print(y2)
-    # print(x0)
-    # print(x1)
-    # print(x2)
     f = np.array([y0, y1, x00, x11])
     f[:, :2] = 0
     return f
 
 def calculate_velocity(positions, timestamps):
+    # author ?
     velocities = {}
     for subName, pos_list in positions.items():
         pos_array = np.array(pos_list)
@@ -305,6 +281,7 @@ def calculate_velocity(positions, timestamps):
 
 
 def calculate_raw_velocity(pos, prevpos, prevtime):
+    # author ?
     #x_cur, y_cur, z_cur = pos
     x_cur = pos[0]
     y_cur = pos[1]
@@ -347,6 +324,8 @@ class Server:
         self.prevtime = time.time()
         self.rawvel = 0
 
+        self.live_plot(True)
+
         # self.xbee, self.remote_devicess, self.remote_names = xbee_init()  # This returns the xbee device,remote network, agents on the network
 
         # perform a check for matching vicon and xbee agents
@@ -359,35 +338,31 @@ class Server:
         self.pos2plot=np.zeros([1,3])
         self.stop = False
 
-
-        # Runs on a parallel thread all the time. It works for now, I don't know how
-        #self.cycle()
-
-        self.plotterv = np.array([[0, 0, 0]])
-        self.plotterr = np.array([[0, 0, 0]])
-        self.plotterx = np.array([[0, 0, 0]])
-        self.plotterth = np.array([[0, 0, 0]])
         self.johnny_update()
         # self.send_data()
         # self.cycle()
 
         self.filtercycle()
-        self.live_update2(True)
+
         self.plot = True
         self.cycle()
 
     def johnny_update(self):
         # sleep(0.01)
+        # retrieve latest vicon frame
         self.vicon.GetFrame()
 
         for subName in self.subjectNames:
+            # get position and rotation information
             pos = np.asarray(self.vicon.GetSegmentGlobalTranslation(subName, subName)[0])
             rot = np.asarray(self.vicon.GetSegmentGlobalRotationEulerXYZ(subName, subName)[0])
 
-            #self.pos2plot=np.append(self.pos2plot, (pos),axis=0)
-            #print('Pos=',pos)
+            # Get reference velocities
             ref_vrot = self.ref[subName][1]
             ref_vel = self.ref[subName][0]
+
+
+            # get filtered velocity
 
             # rawvel = calculate_raw_velocity(pos, self.prevpos, self.prevtime)
             # print(rawvel)
@@ -406,20 +381,19 @@ class Server:
 
             Rz = R.from_euler('z', rot[2], degrees=False).as_matrix()
 
+
+            # Velocity controller
+            # Generate velocity and omega commands
+
             # v = self.vfilter[subName][0]/1000  # convert to m/s
             v = vf/1000  # convert to m/s
-            #print("Vel=",v*1000)
+
             vr = self.rfilter[subName][0]
             # ev = np.linalg.norm(ref_vel) - np.linalg.norm(v)
+
+            # velocity and omega error
             ev = ref_vel[0] - np.linalg.norm(v[:2])
             ew = ref_vrot[2] - vr[2]
-
-
-
-
-
-            # data_v = np.linalg.norm(ref_vel) + Kpv*ev
-            # data_rz = ref_vrot[2] + Kpw * ew
 
             self.pid_vals[subName][1] = ev - self.pid_vals[subName][0]
             self.pid_vals[subName][2] = ev + self.pid_vals[subName][2]
@@ -433,7 +407,7 @@ class Server:
             Kpv = 0.2
             Kpw = 0.1  # 0.2
 
-            # PID
+            # derivative
             Kdv = 0.0 #0.01
             Kdw = 0.0 #0.01
 
@@ -441,20 +415,16 @@ class Server:
              #   self.pid_vals[subName][2][0]=0
               #  self.chk=2
 
-            Kpw = 0 #0.2
-
-
+            # integral
             Kiv = 0.0 #0.01
             Kiw = 0.0 #0.005
 
             Kkv = 1
             Kkw = 1
 
+             # velocity commands
             data_v = (Kkv*np.linalg.norm(ref_vel[0])) + (Kpv*ev + Kdv * self.pid_vals[subName][1][0] + Kiv * self.pid_vals[subName][2][0])/500
             data_rz = Kkw*ref_vrot[2] + Kpw*ew + Kdw * self.pid_vals[subName][4][0] + np.minimum(Kiw*1,Kiw * self.pid_vals[subName][5][0])
-            #print('ev=',ev)
-            #print('iev=',self.pid_vals[subName][2][0])
-            #print('dev=',self.pid_vals[subName][1][0])
 
             #print('w')
             #print(data_rz)
@@ -463,6 +433,7 @@ class Server:
             print("data_v")
             print(data_v)
 
+            # convert to integer
             data_rz = int((100 * data_rz)) + 500
             data_v = int(np.linalg.norm(data_v) * 100) + 100
 
@@ -484,21 +455,12 @@ class Server:
             # print("v sent")
             # print(data_rz)
             print(data_v)
-
             self.data.update({subName: [data_v, data_rz]})
 
-            # print(self.plotterv)
-            # print(self.mover[subName][2])
-
-            self.plotterv = np.append(self.plotterv, [self.mover[subName][2]], axis=0)
-            self.plotterr = np.append(self.plotterr, [self.mover[subName][3]], axis=0)
-
-            self.plotterx = np.append(self.plotterx, [self.mover[subName][0]], axis=0)
-            self.plotterth = np.append(self.plotterth, [self.mover[subName][1]], axis=0)
 
 
     @threaded
-    def live_update2(self, blit=False):
+    def live_plot(self, blit=False):
         x = np.linspace(0, 50., num=100)
         Vx = np.zeros(x.shape)
         Vr = np.zeros(x.shape)
@@ -666,7 +628,6 @@ class Server:
         return self.mover
 
     def end(self):
-
         print('Motor switched off')
 
     def start(self):
@@ -685,6 +646,7 @@ class Server:
             self.pid_vals.update({name: np.zeros((6, 1))})
 
     def filtercycle(self):
+        # wait to stabilize filters
         for i in range(100):
             self.johnny_update()
 
@@ -708,11 +670,7 @@ class Server:
                 # print(veps)
                 # print(reps)
 
-        # self.mover[name] = np.zeros((4, 3))
-        # self.plotterv = np.array([[0, 0, 0]])
-        # self.plotterr = np.array([[0, 0, 0]])
-        # self.plotterx = np.array([[0, 0, 0]])
-        # self.plotterth = np.array([[0, 0, 0]])
+
 
 
 
@@ -750,7 +708,12 @@ if __name__ == '__main__':
 
         # print(T)
 
+
+        ## Trajectory controller : converts position waypoints  to velocity commands
+
         for name in Robot.subjectNames:
+
+
             a = Robot.get_estimate()
             # print(a)
             p = a[name][0][:2]
@@ -804,41 +767,6 @@ if __name__ == '__main__':
         Robot.send_data()
 
         # live_update_demo(False) # 28 fps
-
-    vb = Robot.plotterv
-    ve = Robot.plotterr
-    pos=Robot.plotterx
-
-
-    sp = np.linalg.norm(vb, axis=1)
-
-    plt.plot(vb)
-    plt.title("velocity")
-    plt.show()
-
-    plt.plot(pos)
-    plt.title("Position")
-    plt.show()
-
-
-    plt.plot(ve)
-    plt.title("omega")
-    plt.show()
-
-    kern=np.ones(50)/50
-    smooth_sp=np.convolve(sp,kern, mode='valid')
-    plt.plot(sp)
-    lsp=len(sp)
-
-    v=1
-
-    des_vel=100*v*np.ones(lsp)
-    plt.plot(des_vel)
-    plt.title("Speed")
-    plt.show()
-
-    plt.plot(Robot.pos2plot[:,0])
-    plt.show()
 
 
 
