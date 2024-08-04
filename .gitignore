@@ -2,3 +2,6 @@ pythonProject/examples/
 pythonProject/venv/
 pythonProject/.idea/
 .idea/
+build/
+install/
+log/
