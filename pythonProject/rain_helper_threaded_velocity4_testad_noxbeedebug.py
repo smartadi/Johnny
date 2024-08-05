@@ -1,8 +1,6 @@
 # Working version
 # To DO
-# 1) Omega rolling over
-
-
+# 1) Omega repair
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -163,29 +161,6 @@ def xbee_init(names):
     return xbee, remote_devicess, b
 
 
-def lpf(f, m):
-    y1 = f[0, :]
-    y2 = f[1, :]
-    x0 = m
-    x1 = f[2, :]
-    x2 = f[3, :]
-
-    a1 = 0
-    a2 = 7.8387
-    a3 = -7.8387
-    b1 = 1.0000
-    b2 = - 1.5622
-    b3 = 0.6413
-    y0 = -b2 * y1 - b3 * y2 + a1 * x0 + a2 * x1 + a3 * x2
-    #print("filtered")
-    # print(y0)
-    # print(y1)
-    # print(y2)
-    # print(x0)
-    # print(x1)
-    # print(x2)
-    return np.array([y0, y1, x0, x1])
-
 
 def vel_filterlp(f, m):
     # order 4
@@ -222,7 +197,7 @@ def vel_filterlp(f, m):
     return y0, f
 
 
-def vel_filter2(f, m):
+def vel_filter_derivative(f, m):
     # y1 = m
     # y2 = f[0, :]
     # y3 = f[1, :]
@@ -252,6 +227,8 @@ def vel_filter2(f, m):
     # print(x1)
     # print(x2)
     return y0, f
+
+
 def vel_filter(f, m):
 
     a1 = 0.0292

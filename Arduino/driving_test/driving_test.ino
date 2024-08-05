@@ -53,12 +53,12 @@ uint8_t vv=0;
 uint8_t ww=0;
 int l=0;
 float theta = 0;
-float Kwr = 1000;
-float Kwl = 1000;
+float Kwr = 50;
+float Kwl = 50;
 
-float Kvr = 1;
+float Kvr = 0.95;
 //float Kvl = 0.9;
-float Kvl = 0.9;
+float Kvl = 1;
 
 
 

@@ -163,48 +163,30 @@ def xbee_init(names):
     return xbee, remote_devicess, b
 
 
-def lpf(f, m):
-    y1 = f[0, :]
-    y2 = f[1, :]
-    x0 = m
-    x1 = f[2, :]
-    x2 = f[3, :]
 
-    a1 = 0
-    a2 = 7.8387
-    a3 = -7.8387
-    b1 = 1.0000
-    b2 = - 1.5622
-    b3 = 0.6413
-    y0 = -b2 * y1 - b3 * y2 + a1 * x0 + a2 * x1 + a3 * x2
-    #print("filtered")
-    # print(y0)
-    # print(y1)
-    # print(y2)
-    # print(x0)
-    # print(x1)
-    # print(x2)
-    return np.array([y0, y1, x0, x1])
+###### filters
+def lowpass_vel_filter(f, m):
+    # order 4
+    a1 = 0.2998
+    a2 = 0.2477
+    a3 = 0.2726
+    a4 = 0.2471
+    a5 = 0.2998
 
-def vel_filter2(f, m):
-    # y1 = m
-    # y2 = f[0, :]
-    # y3 = f[1, :]
-    # y4 = f[2, :]
+    # order 6
+    a1 =  0.1108
+    a2 =  0.1371
+    a3 =  0.1794
+    a4 =  0.1956
+    a5 = 0.1794
+    a6 = 0.1371
+    a7 = 0.1108
 
-    a1 = 0.101
-    a2 = 0.462
-    a3 = -0.462
-    a4 = -0.101
-
-    # a1 = -0.124
-    # a2 = 0.248
-    # a3 = 0.248
-    # a4 = 0.248
-    # a5 = -0.124
-
-    y0 = a1 * m + a2 * f[0,:] + a3 * f[1,:] + a4 * f[2,:] # + a5 * f[3,:]
-    # f[3, :] = f[2, :]
+    # y0 = a1 * m + a2 * f[0,:] + a3 * f[1,:] + a4 * f[2,:] + a5 * f[3,:]
+    y0 = a1 * m + a2 * f[0,:] + a3 * f[1,:] + a4 * f[2,:] + a5 * f[3,:] + a6 * f[4,:] + a7 * f[5,:]
+    f[5, :] = f[4, :]
+    f[4, :] = f[3, :]
+    f[3, :] = f[2, :]
     f[2, :] = f[1, :]
     f[1, :] = f[0, :]
     f[0, :] = m
@@ -216,28 +198,42 @@ def vel_filter2(f, m):
     # print(x1)
     # print(x2)
     return y0, f
-def vel_filter(f, m):
-    y1 = f[0, :]
-    y2 = f[1, :]
-    x0 = m
-    x1 = f[2, :]
-    x2 = f[3, :]
 
-    a1 = 0
-    a2 = 7.8387
-    a3 = -7.8387
-    b1 = 1.0000
-    b2 = - 1.5622
-    b3 = 0.6413
-    y0 = -b2 * y1 - b3 * y2 + a1 * x0 + a2 * x1 + a3 * x2
-    #print("filtered")
+def derivative_vel_filter(f, m):
+
+    a1 = 0.0292
+    a2 = -0.1952
+    a3 = 0.2560
+    a4 = 0.2219
+    a5 = 0
+    a6 = -0.2219
+    a7 = -0.2560
+    a8 = 0.1952
+    a9 = -0.0292
+
+    # a1 = -0.124
+    # a2 = 0.248
+    # a3 = 0.248
+    # a4 = 0.248
+    # a5 = -0.124
+
+    y0 = 100*(a1 * m + a2 * f[0, :] + a3 * f[1, :] + a4 * f[2, :] + a5 * f[3, :] + a6 * f[4, :] + a7 * f[5, :]  + a8 * f[6,:] + a9 *f[7,:])
+    f[7, :] = f[6, :]
+    f[6, :] = f[5, :]
+    f[5, :] = f[4, :]
+    f[4, :] = f[3, :]
+    f[3, :] = f[2, :]
+    f[2, :] = f[1, :]
+    f[1, :] = f[0, :]
+    f[0, :] = m
+    # print("filtered")
     # print(y0)
     # print(y1)
     # print(y2)
     # print(x0)
     # print(x1)
     # print(x2)
-    return np.array([y0, y1, x0, x1])
+    return y0, f
 
 
 def om_filter(f, m):
@@ -270,7 +266,7 @@ def om_filter(f, m):
     else:
         x1 = x11
 
-    y0 = -b2 * y1 - b3 * y2 + a1 * x0 + a2 * x1 + a3 * x22
+    y0 = 1*(-b2 * y1 - b3 * y2 + a1 * x0 + a2 * x1 + a3 * x22)
 
     # print("filtered")
     # print(y0)
@@ -282,47 +278,8 @@ def om_filter(f, m):
     f = np.array([y0, y1, x00, x11])
     f[:, :2] = 0
     return f
+############
 
-def calculate_velocity(positions, timestamps):
-    velocities = {}
-    for subName, pos_list in positions.items():
-        pos_array = np.array(pos_list)
-        time_array = np.array(timestamps)
-
-        # Calculate velocity as derivative of position
-        dt = np.diff(time_array)
-        dx = np.diff(pos_array, axis=0)
-        velocity = np.divide(dx, dt[:, None], out=np.zeros_like(dx), where=dt[:, None]!=0)  # Avoid division by zero
-
-        # Apply Butterworth low-pass filter
-        b, a = butter(N=3, Wn=0.05)  # adjust as needed
-        filtered_velocity = np.zeros_like(velocity)
-        for i in range(3):  # filter for each spatial dimension (x, y, z)
-            filtered_velocity[:, i] = filtfilt(b, a, velocity[:, i])
-
-        velocities[subName] = filtered_velocity
-    return velocities
-
-
-def calculate_raw_velocity(pos, prevpos, prevtime):
-    #x_cur, y_cur, z_cur = pos
-    x_cur = pos[0]
-    y_cur = pos[1]
-    z_cur = pos[2]
-    #x_prev, y_prev, z_prev = prevpos
-    x_prev = prevpos[0]
-    y_prev = prevpos[1]
-    z_prev = prevpos[2]
-
-    delta_t = prevtime - time.time()
-
-    vx = (x_cur - x_prev) / delta_t
-    vy = (y_cur - y_prev) / delta_t
-    vz = (z_cur - z_prev) / delta_t
-
-    velocity_magnitude = math.sqrt(vx ** 2 + vy ** 2 + vz ** 2)
-    # print("type = ", type(velocity_magnitude))
-    return velocity_magnitude
 
 class Server:
 
@@ -335,19 +292,18 @@ class Server:
         self.data = ","
         # vicon is the client, subjectNames are the agent names, Segment names are subgroups of each agent
         self.vicon, self.segmentName, self.subjectNames, self.mover = vicon_init()
-        self.xbee, self.remote_devicess, self.remote_names = xbee_init(self.subjectNames)  # This returns the xbee device,remote network, agents on the network
+        # self.xbee, self.remote_devicess, self.remote_names = xbee_init(self.subjectNames)  # This returns the xbee device,remote network, agents on the network
+        self.plot = True
 
         self.ref = dict()
         self.vfilter = dict()
         self.rfilter = dict()
-        self.pid_vals = dict()
+        self.pd_vals = dict()
+        self.integral_vals = dict()
         self.pdata = dict()
+        self.error_vals = dict()
 
-        self.prevpos = [0,0,0]
-        self.prevtime = time.time()
-        self.rawvel = 0
 
-        # self.xbee, self.remote_devicess, self.remote_names = xbee_init()  # This returns the xbee device,remote network, agents on the network
 
         # perform a check for matching vicon and xbee agents
         self.active_agents = None
@@ -356,24 +312,15 @@ class Server:
         self.data = dict()
         self.packet = None
         self.init_var()
-        self.pos2plot=np.zeros([1,3])
+
         self.stop = False
+        self.live_plot(True)
 
-
-        # Runs on a parallel thread all the time. It works for now, I don't know how
-        #self.cycle()
-
-        self.plotterv = np.array([[0, 0, 0]])
-        self.plotterr = np.array([[0, 0, 0]])
-        self.plotterx = np.array([[0, 0, 0]])
-        self.plotterth = np.array([[0, 0, 0]])
         self.johnny_update()
-        # self.send_data()
-        # self.cycle()
 
         self.filtercycle()
-        self.live_update2(True)
-        self.plot = True
+
+
         self.cycle()
 
     def johnny_update(self):
@@ -381,94 +328,88 @@ class Server:
         self.vicon.GetFrame()
 
         for subName in self.subjectNames:
+
             pos = np.asarray(self.vicon.GetSegmentGlobalTranslation(subName, subName)[0])
             rot = np.asarray(self.vicon.GetSegmentGlobalRotationEulerXYZ(subName, subName)[0])
 
-            #self.pos2plot=np.append(self.pos2plot, (pos),axis=0)
-            #print('Pos=',pos)
             ref_vrot = self.ref[subName][1]
             ref_vel = self.ref[subName][0]
 
-            # rawvel = calculate_raw_velocity(pos, self.prevpos, self.prevtime)
-            # print(rawvel)
+            vf, pd = derivative_vel_filter(self.pdata[subName], pos)
+            vflp, vd = lowpass_vel_filter(self.vfilter[subName], vf)
 
-            # self.prevpos = pos
-            # self.prevtime = time.time()
-            # self.rawvel = rawvel
-
-            # self.vfilter.update({subName: vel_filter2(self.vfilter[subName], pos)})
-            vf , pd = vel_filter2(self.pdata[subName], pos)
             self.pdata.update({subName: pd})
-            print(self.pdata[subName])
-
+            self.vfilter.update({subName: vd})
             self.rfilter.update({subName: om_filter(self.rfilter[subName], rot)})
-            self.mover[subName] = np.array([pos, rot, vf, self.rfilter[subName][0]])
+            self.mover[subName] = np.array([pos, rot, vflp, self.rfilter[subName][0]])
+
+            Ev = self.error_vals[subName][0]
+            Ew = self.error_vals[subName][1]
+
+            Ev[:-1] = iv[1:]
+            Ew[:-1] = iw[1:]
+            Ev[-1] = ref_vel[0] - np.linalg.norm(v[:2])
+            Ew[-1] = ref_vrot[2] - vr[2]
+
+
 
             Rz = R.from_euler('z', rot[2], degrees=False).as_matrix()
-
-            # v = self.vfilter[subName][0]/1000  # convert to m/s
-            v = vf/1000  # convert to m/s
-            #print("Vel=",v*1000)
+            v = vf/1000  # convert to m/s)
             vr = self.rfilter[subName][0]
             # ev = np.linalg.norm(ref_vel) - np.linalg.norm(v)
-            ev = ref_vel[0] - np.linalg.norm(v[:2])
-            ew = ref_vrot[2] - vr[2]
+            # ev = ref_vel[0] - np.linalg.norm(v[:2])
+            # ew = ref_vrot[2] - vr[2]
+
+            # self.pd_vals[subName][1] = ev - self.pd_vals[subName][0]
+            # self.pd_vals[subName][0] = ev
+            #
+            # self.pd_vals[subName][3] = ew - self.pd_vals[subName][2]
+            # self.pd_vals[subName][2] = ew
+            #
+            # iv = self.error_vals[subName][0]
+            # iw = self.error_vals[subName][1]
+            #
+            # iv[:-1] = iv[1:]
+            # iw[:-1] = iw[1:]
+            # iv[-1] = ev
+            # iw[-1] = ew
 
 
-
-
-
-            # data_v = np.linalg.norm(ref_vel) + Kpv*ev
-            # data_rz = ref_vrot[2] + Kpw * ew
-
-            self.pid_vals[subName][1] = ev - self.pid_vals[subName][0]
-            self.pid_vals[subName][2] = ev + self.pid_vals[subName][2]
-            self.pid_vals[subName][0] = ev
-
-            self.pid_vals[subName][4] = ew - self.pid_vals[subName][3]
-            self.pid_vals[subName][5] = ew + self.pid_vals[subName][5]
-            self.pid_vals[subName][3] = ew
-
+            self.error_vals.update({subName: np.array([Ev,Ew])})
             # proportional
             Kpv = 0.2
-            Kpw = 0.1  # 0.2
+            Kpw = 0.1
 
-            # PID
-            Kdv = 0.0 #0.01
-            Kdw = 0.0 #0.01
+            # derivative
+            Kdv = 0.0
+            Kdw = 0.0
 
-            #if self.chk==1 and ev<1:
-             #   self.pid_vals[subName][2][0]=0
-              #  self.chk=2
-
-            Kpw = 0 #0.2
-
-
+            # integral
             Kiv = 0.0 #0.01
             Kiw = 0.0 #0.005
 
             Kkv = 1
             Kkw = 1
 
-            data_v = (Kkv*np.linalg.norm(ref_vel[0])) + (Kpv*ev + Kdv * self.pid_vals[subName][1][0] + Kiv * self.pid_vals[subName][2][0])/500
-            data_rz = Kkw*ref_vrot[2] + Kpw*ew + Kdw * self.pid_vals[subName][4][0] + np.minimum(Kiw*1,Kiw * self.pid_vals[subName][5][0])
+            vel = (Kkv*np.linalg.norm(ref_vel[0])) + (Kpv*Ev[-1] + Kdv * (Ev[-1] - Ev[-2]) + Kiv * sum(Ev))/500
+            om = Kkw*ref_vrot[2] + Kpw*Ew[-1] + Kdw * (Ew[-1] - Ew[-2]) + np.minimum(Kiw*1,Kiw * sum(Ew))
             #print('ev=',ev)
             #print('iev=',self.pid_vals[subName][2][0])
             #print('dev=',self.pid_vals[subName][1][0])
 
             #print('w')
             #print(data_rz)
-            print('v')
-            print(v)
-            print("data_v")
-            print(data_v)
+            # print('v')
+            # print(v)
+            # print("data_v")
+            # print(data_v)
 
-            data_rz = int((100 * data_rz)) + 500
-            data_v = int(np.linalg.norm(data_v) * 100) + 100
+            data_rz = int((100 * om)) + 500
+            data_v = int(np.linalg.norm(vel) * 100) + 100
 
             # print('conversion')
             # print(data_rz)
-            print(data_v)
+            # print(data_v)
 
             if (data_v > 900):
                 data_v = 900
@@ -483,58 +424,57 @@ class Server:
 
             # print("v sent")
             # print(data_rz)
-            print(data_v)
+
+            print('Velocity : '+ str(vel) +',   data_V : '+ str(data_v) + ',  Omega :'+str(om) + ',  data_w :'+ str(data_rz))
 
             self.data.update({subName: [data_v, data_rz]})
 
-            # print(self.plotterv)
-            # print(self.mover[subName][2])
-
-            self.plotterv = np.append(self.plotterv, [self.mover[subName][2]], axis=0)
-            self.plotterr = np.append(self.plotterr, [self.mover[subName][3]], axis=0)
-
-            self.plotterx = np.append(self.plotterx, [self.mover[subName][0]], axis=0)
-            self.plotterth = np.append(self.plotterth, [self.mover[subName][1]], axis=0)
 
 
     @threaded
-    def live_update2(self, blit=False):
-        x = np.linspace(0, 50., num=100)
-        Vx = np.zeros(x.shape)
-        Vr = np.zeros(x.shape)
-        Vxx = np.zeros(x.shape)
-        Vyy = np.zeros(x.shape)
-        Vth = np.zeros(x.shape)
+    def live_plot(self, blit=False):
+        t = np.linspace(0, 50., num=100)
+        Vx = np.zeros(t.shape)
+        Vr = np.zeros(t.shape)
+        x = np.zeros(t.shape)
+        y = np.zeros(t.shape)
+        th = np.zeros(t.shape)
 
-        fig = plt.figure(figsize=(15,5))
-        ax1 = fig.add_subplot(2, 1, 1)
-        ax2 = fig.add_subplot(2, 1, 2)
-        #ax3 = fig.add_subplot(5, 1, 3)
-        #ax4 = fig.add_subplot(5, 1, 4)
-        #ax5 = fig.add_subplot(5, 1, 5)
+        fig = plt.figure(figsize=(15,10))
+        ax1 = fig.add_subplot(3, 2, 1)
+        ax2 = fig.add_subplot(3, 2, 2)
+        ax3 = fig.add_subplot(3, 2, 3)
+        ax4 = fig.add_subplot(3, 2, 4)
+        ax5 = fig.add_subplot(3, 2, 5)
 
         line1, = ax1.plot([], lw=3)
         line2, = ax2.plot([], lw=3)
-        #line3, = ax3.plot([], lw=3)
-        #line4, = ax4.plot([], lw=3)
-        #line5, = ax5.plot([], lw=3)
+        line3, = ax3.plot([], lw=3)
+        line4, = ax4.plot([], lw=3)
+        line5, = ax5.plot([], lw=3)
 
 
-        ax1.set_xlim(x.min(), x.max())
+        ax1.set_xlim(t.min(), t.max())
         ax1.set_ylim([0, 5])
+        ax1.set_xlabel('V')
 
-        ax2.set_xlim(x.min(), x.max())
+        ax2.set_xlim(t.min(), t.max())
         ax2.set_ylim([-3, 3])
+        ax2.set_xlabel('omega')
 
-        #ax3.set_xlim(x.min(), x.max())
-        #ax3.set_ylim([-1500, 1500])
+        ax3.set_xlim(t.min(), t.max())
+        ax3.set_ylim([-1000, 1000])
+        ax3.set_xlabel('x')
 
-        #ax4.set_xlim(x.min(), x.max())
-        #ax4.set_ylim([-1500, 1500])
+        ax4.set_xlim(t.min(), t.max())
+        ax4.set_ylim([-1000, 1000])
+        ax4.set_xlabel('y')
 
 
-        #ax5.set_xlim(x.min(), x.max())
-        #ax5.set_ylim([-10, 10])
+        ax5.set_xlim(t.min(), t.max())
+        ax5.set_ylim([-10, 10])
+        ax5.set_xlabel('yaw')
+
 
         fig.canvas.draw()  # note that the first draw comes before setting data
 
@@ -542,9 +482,9 @@ class Server:
             # cache the background
             ax1background = fig.canvas.copy_from_bbox(ax1.bbox)
             ax2background = fig.canvas.copy_from_bbox(ax2.bbox)
-            #ax3background = fig.canvas.copy_from_bbox(ax3.bbox)
-            #ax4background = fig.canvas.copy_from_bbox(ax4.bbox)
-            #ax5background = fig.canvas.copy_from_bbox(ax5.bbox)
+            ax3background = fig.canvas.copy_from_bbox(ax3.bbox)
+            ax4background = fig.canvas.copy_from_bbox(ax4.bbox)
+            ax5background = fig.canvas.copy_from_bbox(ax5.bbox)
 
         plt.show(block=False)
 
@@ -555,12 +495,12 @@ class Server:
         while(self.plot == True):
             from scipy.ndimage import shift
 
-            v = self.mover[self.subjectNames[0]][2]  # convert to 10cm/s
+            v = self.mover[self.subjectNames[0]][2]/1000  # convert to 10cm/s
             # v = self.rawvel  # convert to m/s
-            r = self.mover[self.subjectNames[0]][3]
+            r0 = self.mover[self.subjectNames[0]][3]
 
-            xx = self.mover[self.subjectNames[0]][0]
-            th = self.mover[self.subjectNames[0]][1]
+            xx0 = self.mover[self.subjectNames[0]][0]
+            th0 = self.mover[self.subjectNames[0]][1]
 
             #print("vel:::")
             #print(v)
@@ -576,17 +516,17 @@ class Server:
             #vr = self.rfilter[subName][0]
             #x =
             Vx = np.concatenate((Vx[1:],[np.linalg.norm(v)]))
-            Vr = np.concatenate((Vr[1:],[r[2]]))
-            Vxx = np.concatenate((Vxx[1:],[xx[0]]))
-            Vyy = np.concatenate((Vyy[1:],[xx[1]]))
-            Vth = np.concatenate((Vth[1:],[th[2]]))
+            Vr = np.concatenate((Vr[1:],[r0[2]]))
+            x = np.concatenate((x[1:],[xx0[0]]))
+            y = np.concatenate((y[1:],[xx0[1]]))
+            th = np.concatenate((th[1:],[th0[2]]))
 
 
-            line1.set_data(x, Vx)
-            line2.set_data(x, Vr)
-            #line3.set_data(x, Vxx)
-            #line4.set_data(x, Vyy)
-            #line5.set_data(x, Vth)
+            line1.set_data(t, Vx)
+            line2.set_data(t, Vr)
+            line3.set_data(t, x)
+            line4.set_data(t, y)
+            line5.set_data(t, th)
             #line2.set_data(x, np.sin(x / 3. + k))
             # tx = 'Mean Frame Rate:\n {fps:.3f}FPS'.format(fps=((i + 1) / (time.time() - t_start)))
             # text1.set_text(tx)
@@ -597,24 +537,24 @@ class Server:
                 # restore background
                 fig.canvas.restore_region(ax1background)
                 fig.canvas.restore_region(ax2background)
-                #fig.canvas.restore_region(ax3background)
-                #fig.canvas.restore_region(ax4background)
-                #fig.canvas.restore_region(ax5background)
+                fig.canvas.restore_region(ax3background)
+                fig.canvas.restore_region(ax4background)
+                fig.canvas.restore_region(ax5background)
 
                 # redraw just the points
                 ax1.draw_artist(line1)
                 ax2.draw_artist(line2)
-                #ax1.draw_artist(line3)
-                #ax2.draw_artist(line4)
-                #ax1.draw_artist(line5)
+                ax3.draw_artist(line3)
+                ax4.draw_artist(line4)
+                ax5.draw_artist(line5)
 
 
                 # fill in the axes rectangle
                 fig.canvas.blit(ax1.bbox)
                 fig.canvas.blit(ax2.bbox)
-                #fig.canvas.blit(ax3.bbox)
-                #fig.canvas.blit(ax4.bbox)
-                #fig.canvas.blit(ax5.bbox)
+                fig.canvas.blit(ax3.bbox)
+                fig.canvas.blit(ax4.bbox)
+                fig.canvas.blit(ax5.bbox)
 
             else:
 
@@ -654,7 +594,7 @@ class Server:
     def cycle(self):
         while (True):
             self.johnny_update()
-            self.send_data()
+            #self.send_data()
 
             if self.stop == True:
                 break
@@ -680,9 +620,14 @@ class Server:
             # Robot.ref[name] = np.array([[0,0,0],[0,0,0]])
             self.ref.update({name: np.array([[0, 0, 0], [0, 0, 0]])})
             self.vfilter.update({name: np.zeros((6, 3))})
-            self.pdata.update({name: np.zeros((3, 3))})
+            self.pdata.update({name: np.zeros((8, 3))})
             self.rfilter.update({name: np.zeros((4, 3))})
-            self.pid_vals.update({name: np.zeros((6, 1))})
+
+            # store proportional and derivative errors
+            self.error_vals.update({name: np.zeros((1, 50))})
+
+            # store integral errors
+            self.integral_vals.update({name: np.zeros((2, 50))})
 
     def filtercycle(self):
         for i in range(100):
@@ -690,10 +635,7 @@ class Server:
 
         for name in self.subjectNames:
             self.mover[name] = np.zeros((4, 3))
-            self.plotterv = np.array([[0, 0, 0]])
-            self.plotterr = np.array([[0, 0, 0]])
-            self.plotterx = np.array([[0, 0, 0]])
-            self.plotterth = np.array([[0, 0, 0]])
+
 
         veps = 1
         reps = 1
@@ -708,11 +650,8 @@ class Server:
                 # print(veps)
                 # print(reps)
 
-        # self.mover[name] = np.zeros((4, 3))
-        # self.plotterv = np.array([[0, 0, 0]])
-        # self.plotterr = np.array([[0, 0, 0]])
-        # self.plotterx = np.array([[0, 0, 0]])
-        # self.plotterth = np.array([[0, 0, 0]])
+
+
 
 
 
@@ -734,7 +673,7 @@ if __name__ == '__main__':
     t0 = time.time()
     print("start")
     print(t0 - time.time())
-    D = 100
+    D = 300
 
     while( time.time()-t0 < D):
         #print("time")
@@ -767,6 +706,10 @@ if __name__ == '__main__':
             ep = [0,0] - p
             ref_v = Kv*np.linalg.norm(ep)
             ref_w = Kw*(np.arctan2(ep[1],ep[0])-r)
+            # print(ref_w)
+            # print(r)
+            # print(np.arctan2(ep[1], ep[0]))
+            # print(r)
             #print(r)
             #print(np.arctan2(ep[1],ep[0]))
             # print(ref_v)
@@ -785,8 +728,8 @@ if __name__ == '__main__':
             # vx = 0.5*wd*math.sin(wd*T)
             # vy = 0.5*wd*math.cos(wd*T)
             v = 0
-            ref_v = 1.5
-            ref_w = 0
+            # ref_v = 1.5
+            # ref_w = 0
 
             Robot.ref[name] = np.array([[ref_v, 0.0, 0.0], [0.0, 0.0, ref_w]])
     Robot.plot = False
@@ -805,40 +748,7 @@ if __name__ == '__main__':
 
         # live_update_demo(False) # 28 fps
 
-    vb = Robot.plotterv
-    ve = Robot.plotterr
-    pos=Robot.plotterx
 
-
-    sp = np.linalg.norm(vb, axis=1)
-
-    plt.plot(vb)
-    plt.title("velocity")
-    plt.show()
-
-    plt.plot(pos)
-    plt.title("Position")
-    plt.show()
-
-
-    plt.plot(ve)
-    plt.title("omega")
-    plt.show()
-
-    kern=np.ones(50)/50
-    smooth_sp=np.convolve(sp,kern, mode='valid')
-    plt.plot(sp)
-    lsp=len(sp)
-
-    v=1
-
-    des_vel=100*v*np.ones(lsp)
-    plt.plot(des_vel)
-    plt.title("Speed")
-    plt.show()
-
-    plt.plot(Robot.pos2plot[:,0])
-    plt.show()
 
 
 
