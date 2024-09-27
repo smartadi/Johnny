@@ -313,6 +313,7 @@ class Server:
 
 
         # perform a check for matching vicon and xbee agents
+        self.t0 = time.time()
         self.active_agents = None
         self.nagents = len(self.subjectNames)
         self.t = 0
@@ -321,21 +322,46 @@ class Server:
         self.init_var()
 
         self.stop = False
-        self.live_plot(True)
-        self.t = [0]
-        self.dt = []
+        # self.live_plot(True)
+        self.t = np.zeros((1,50), dtype = float)
 
         self.johnny_update()
+        self.johnny_control()
 
         self.filtercycle()
 
 
         self.cycle()
 
+
     def johnny_update(self):
         # sleep(0.01)
-        self.dt.append(self.t[-1] - time.time())
-        self.t.append(time.time())
+        self.t[0,:-1] = self.t[0,1:]
+        self.t[0,-1] = time.time() - self.t0
+        self.vicon.GetFrame()
+
+        for subName in self.subjectNames:
+
+            pos = np.asarray(self.vicon.GetSegmentGlobalTranslation(subName, subName)[0])
+            rot = np.asarray(self.vicon.GetSegmentGlobalRotationEulerXYZ(subName, subName)[0])
+
+            ref_vrot = self.ref[subName][1]
+            ref_vel = self.ref[subName][0]
+
+            vf, pd = derivative_vel_filter(self.pdata[subName], pos)
+            vflp, vd = lowpass_vel_filter(self.vfilter[subName], vf)
+
+            self.pdata.update({subName: pd})
+            self.vfilter.update({subName: vd})
+            self.rfilter.update({subName: om_filter(self.rfilter[subName], rot)})
+            self.mover[subName] = np.array([pos, rot, vflp, self.rfilter[subName][0]])
+
+
+
+    def johnny_control(self):
+        # sleep(0.01)
+        self.t[0,:-1] = self.t[0,1:]
+        self.t[0,-1] = time.time() - self.t0
         self.vicon.GetFrame()
 
         for subName in self.subjectNames:
@@ -358,7 +384,7 @@ class Server:
             # velocity controller
 
             Rz = R.from_euler('z', rot[2], degrees=False).as_matrix()
-            v = vflp / 1000  # convert to m/s)
+            v = vflp / 1  # convert to m/s) and v is 3D vector (u v w)
             vr = self.rfilter[subName][0]
 
             Ev = self.error_vals[subName][0]
@@ -367,238 +393,72 @@ class Server:
             Ev[:-1] = Ev[1:]
             Ew[:-1] = Ew[1:]
             Ev[-1] = ref_vel[0] - np.linalg.norm(v[:2])
-            Ew[-1] = ref_vrot[2] - vr[2]
+            #Ew[-1] = ref_vrot[2] - vr[2]
 
-
-
-
-            # ev = np.linalg.norm(ref_vel) - np.linalg.norm(v)
-            # ev = ref_vel[0] - np.linalg.norm(v[:2])
-            # ew = ref_vrot[2] - vr[2]
-
-            # self.pd_vals[subName][1] = ev - self.pd_vals[subName][0]
-            # self.pd_vals[subName][0] = ev
-            #
-            # self.pd_vals[subName][3] = ew - self.pd_vals[subName][2]
-            # self.pd_vals[subName][2] = ew
-            #
-            # iv = self.error_vals[subName][0]
-            # iw = self.error_vals[subName][1]
-            #
-            # iv[:-1] = iv[1:]
-            # iw[:-1] = iw[1:]
-            # iv[-1] = ev
-            # iw[-1] = ew
 
 
             self.error_vals.update({subName: np.array([Ev,Ew])})
             # proportional
             Kpv = 10
-            Kpw = 10
+            Kpw = 1
 
             # derivative
             Kdv = 0.1
-            Kdw = 0.1
+            Kdw = 0.5
 
             # integral
             Kiv = 0.1 #0.01
-            Kiw = 0.1 #0.005
+            Kiw = 0.01 #0.005
 
-            Kkv = 1
+            Kkv = 50
             Kkw = 1
 
+            Heading_ref = 0
+            #Heading = np.arctan2(v[1],v[0])*180/np.pi
+            Heading = rot[2]*180/np.pi
+            Heading_error = Heading_ref - Heading
+            ref_vel[0]=0
+            ref_vrot[2]=3*Heading_error
+            Ew[-1] = ref_vrot[2] - vr[2]
+            #ref_vrot[2]=0*np.pi/180
 
+            vel = (Kkv*np.linalg.norm(ref_vel[0]))      +     (Kpv*Ev[-1] + Kdv * (Ev[-1] - Ev[-2]) + Kiv * sum(Ev))/500
+            om = Kkw*ref_vrot[2]           +            Kpw*Ew[-1] + Kdw * (Ew[-1] - Ew[-2]) + np.minimum(Kiw*1,Kiw * sum(Ew))
+            om = Kpw * Ew[-1] + Kdw * (Ew[-1] - Ew[-2]) + np.minimum(Kiw * 1, Kiw * sum(Ew))
+            if om <= 30:
+                data_rz = int((2 * om)) + 500  # 500 for going straight
+            else:
+                data_rz = int((1 * om)) + 500  # 500 for going straight
 
-
-
-
-
-
-
-
-            vel = (Kkv*np.linalg.norm(ref_vel[0])) + (Kpv*Ev[-1] + Kdv * (Ev[-1] - Ev[-2]) + Kiv * sum(Ev))/500
-            om = Kkw*ref_vrot[2] + Kpw*Ew[-1] + Kdw * (Ew[-1] - Ew[-2]) + np.minimum(Kiw*1,Kiw * sum(Ew))
-            #print('ev=',ev)
-            #print('iev=',self.pid_vals[subName][2][0])
-            #print('dev=',self.pid_vals[subName][1][0])
-
-            #print('w')
-            #print(data_rz)
-            # print('v')
-            # print(v)
-            # print("data_v")
-            # print(data_v)
-
-            data_rz = int((100 * om)) + 500
+            data_rz = 500
             data_v = int(np.linalg.norm(vel) * 0.25) + 100
+            #data_v = int(np.linalg.norm(vel))
+            #data_rz = 500
+            data_v = 100
+            print('data rz   '+str(data_rz)+'data v   '+str(data_v))
 
-            # print('conversion')
-            # print(data_rz)
-            # print(data_v)
+            if (data_v > 1000):
+                data_v = 1000
 
-            if (data_v > 900):
-                data_v = 900
+            if (data_rz > 650):
+                data_rz = 650
 
-            if (data_rz > 900):
-                data_rz = 900
+            if (data_rz < 350):
+                data_rz = 350
 
-            if (data_rz < 100):
-                data_rz = 100
-
-            # data_rz = 1800
-
-            # print("v sent")
-            # print(data_rz)
-
-            #print('Velocity : '+ str(vel) +',   data_V : '+ str(data_v) + ',  Omega :'+str(om) + ',  data_w :'+ str(data_rz))
+            dt = np.diff(self.t)
+            #print( 'Ref Velocity : '+ str(ref_vel) +',   data_V : '+ str(data_v) + ',  Omega :'+str(om) + ',  data_w :'+ str(data_rz)+ ',  dt :' + str(np.max(dt)))
+            #print('Ref Heading : ' + str(Heading_ref) + '    Heading : ' + str(rot[2]*180/np.pi) + '    Ref Velocity : '+ str(ref_vel[0]) +',   Ev : '+ str(Ev[-1])+',   Vel : '+ str(np.linalg.norm(v[:2]))+',   Vel_comm : '+ str(vel) +',   Rot_comm : '+ str(data_rz))
+            print('Ref Heading : ' + str(Heading_ref) + '    Heading : ' + str(
+                rot[2] * 180 / np.pi) + ',   Heading_error : ' + str(Heading_error) + '    Ref Velocity : ' + str(ref_vel[0]) + ',   Ev : ' + str(
+                Ev[-1])  + ',   Om : ' + str(
+                om) + ',   Rot_comm : ' + str(data_rz))
 
             self.data.update({subName: [data_v, data_rz]})
 
 
-
     @threaded
-    def live_plot(self, blit=False):
-        t = np.linspace(0, 50., num=100)
-        Vx = np.zeros(t.shape)
-        Vr = np.zeros(t.shape)
-        x = np.zeros(t.shape)
-        y = np.zeros(t.shape)
-        th = np.zeros(t.shape)
-        dt = np.zeros(t.shape)
 
-        fig = plt.figure(figsize=(15,10))
-        ax1 = fig.add_subplot(3, 2, 1)
-        ax2 = fig.add_subplot(3, 2, 2)
-        ax3 = fig.add_subplot(3, 2, 3)
-        ax4 = fig.add_subplot(3, 2, 4)
-        ax5 = fig.add_subplot(3, 2, 5)
-        ax6 = fig.add_subplot(3, 2, 6)
-
-        line1, = ax1.plot([], lw=3)
-        line2, = ax2.plot([], lw=3)
-        line3, = ax3.plot([], lw=3)
-        line4, = ax4.plot([], lw=3)
-        line5, = ax5.plot([], lw=3)
-        line6, = ax6.plot([], lw=3)
-
-
-        ax1.set_xlim(t.min(), t.max())
-        ax1.set_ylim([0, 750])
-        ax1.set_xlabel('V')
-
-        ax2.set_xlim(t.min(), t.max())
-        ax2.set_ylim([-3, 3])
-        ax2.set_xlabel('omega')
-
-        ax3.set_xlim(t.min(), t.max())
-        ax3.set_ylim([-1000, 1000])
-        ax3.set_xlabel('x')
-
-        ax4.set_xlim(t.min(), t.max())
-        ax4.set_ylim([-1000, 1000])
-        ax4.set_xlabel('y')
-
-
-        ax5.set_xlim(t.min(), t.max())
-        ax5.set_ylim([-10, 10])
-        ax5.set_xlabel('yaw')
-
-        ax6.set_xlim(t.min(), t.max())
-        ax6.set_ylim([-1000, 0])
-        ax6.set_xlabel('dt')
-
-
-        fig.canvas.draw()  # note that the first draw comes before setting data
-
-        if blit:
-            # cache the background
-            ax1background = fig.canvas.copy_from_bbox(ax1.bbox)
-            ax2background = fig.canvas.copy_from_bbox(ax2.bbox)
-            ax3background = fig.canvas.copy_from_bbox(ax3.bbox)
-            ax4background = fig.canvas.copy_from_bbox(ax4.bbox)
-            ax5background = fig.canvas.copy_from_bbox(ax5.bbox)
-
-        plt.show(block=False)
-
-        # t_start = time.time()
-        k = 0.
-
-        #for i in np.arange(10000):
-        while(self.plot == True):
-            from scipy.ndimage import shift
-
-            v = self.mover[self.subjectNames[0]][2]  # convert to 10cm/s
-            # v = self.rawvel  # convert to m/s
-            r0 = self.mover[self.subjectNames[0]][3]
-
-            xx0 = self.mover[self.subjectNames[0]][0]
-            th0 = self.mover[self.subjectNames[0]][1]
-
-            #print("vel:::")
-            #print(v)
-
-            #print("rot:::")
-            #print(r)
-
-            #print("pos:::")
-            #print(xx)
-
-            #print("th:::")
-            #print(th)
-            #vr = self.rfilter[subName][0]
-            #x =
-            Vx = np.concatenate((Vx[1:],[np.linalg.norm(v)]))
-            Vr = np.concatenate((Vr[1:],[r0[2]]))
-            x = np.concatenate((x[1:],[xx0[0]]))
-            y = np.concatenate((y[1:],[xx0[1]]))
-            th = np.concatenate((th[1:],[th0[2]]))
-            print([int(1000*self.dt[-1])])
-            print(int(1000 * self.dt[-1]))
-            print((1000 * self.dt[-1]))
-
-            #dt = np.concatenate(dt[1:],0)
-
-
-            line1.set_data(t, Vx)
-            line2.set_data(t, Vr)
-            line3.set_data(t, x)
-            line4.set_data(t, y)
-            line5.set_data(t, th)
-            #line6.set_data(t, dt)
-            #line2.set_data(x, np.sin(x / 3. + k))
-            # tx = 'Mean Frame Rate:\n {fps:.3f}FPS'.format(fps=((i + 1) / (time.time() - t_start)))
-            # text1.set_text(tx)
-            # text2.set_text(tx)
-            # print tx
-            k += 0.11
-            if blit:
-                # restore background
-                fig.canvas.restore_region(ax1background)
-                fig.canvas.restore_region(ax2background)
-                fig.canvas.restore_region(ax3background)
-                fig.canvas.restore_region(ax4background)
-                fig.canvas.restore_region(ax5background)
-
-                # redraw just the points
-                ax1.draw_artist(line1)
-                ax2.draw_artist(line2)
-                ax3.draw_artist(line3)
-                ax4.draw_artist(line4)
-                ax5.draw_artist(line5)
-
-
-                # fill in the axes rectangle
-                fig.canvas.blit(ax1.bbox)
-                fig.canvas.blit(ax2.bbox)
-                fig.canvas.blit(ax3.bbox)
-                fig.canvas.blit(ax4.bbox)
-                fig.canvas.blit(ax5.bbox)
-
-            else:
-
-                fig.canvas.draw()
-
-            fig.canvas.flush_events()
 
 
     def get_agents(self):
@@ -628,12 +488,16 @@ class Server:
             i=i+1
 
 
+
+
     @threaded
     def cycle(self):
         while (True):
             self.johnny_update()
+            dt_max = np.max(np.diff(self.t))
+            self.johnny_control()
             self.send_data()
-
+            print('dt_max :' + str(dt_max))
             if self.stop == True:
                 break
 
@@ -670,6 +534,7 @@ class Server:
     def filtercycle(self):
         for i in range(100):
             self.johnny_update()
+            self.johnny_control()
 
         for name in self.subjectNames:
             self.mover[name] = np.zeros((4, 3))
@@ -680,6 +545,7 @@ class Server:
         while veps > 0.1 and reps > 0.1:
             #eps = 0
             self.johnny_update()
+            self.johnny_control()
 
             for name in self.subjectNames:
                 # eps = eps + np.linalg.norm(self.vfilter[name][0]) + np.linalg.norm(self.rfilter[name][0])
@@ -711,21 +577,12 @@ if __name__ == '__main__':
     t0 = time.time()
     print("start")
     print(t0 - time.time())
-    D = 120
+    D = 200
 
     while( time.time()-t0 < D):
-        #print("time")
-        # print(t0 - time.time())
-
         t = time.time()
         T = time.time()-t0
-        # while(time.time()-t<0.05):
-        #     # print("loop")
-        #     # print( time.time()-t)
-        #     Robot.johnny_update()
-        #     Robot.send_data()
 
-        # print(T)
 
         for name in Robot.subjectNames:
             a = Robot.get_estimate()
@@ -744,22 +601,7 @@ if __name__ == '__main__':
             ep = [0,0] - p
             ref_v = Kv*np.linalg.norm(ep)
             ref_w = Kw*(np.arctan2(ep[1],ep[0])-r)
-            # print('ref theta: '+ str(np.rad2deg(np.arctan2(ep[1],ep[0]))) + '  theta: '+ str( np.rad2deg(r)) + '   ref_w: '+ str(ref_w))
-            # print(r)
-            # print(np.arctan2(ep[1], ep[0]))
-            # print(r)
-            #print(r)
-            #print(np.arctan2(ep[1],ep[0]))
-            # print(ref_v)
-            # print(ref_w)
-            # figure 8
-            # wd = 1
-            # vx = 0.5*wd*math.sin(wd*T)
-            # vy = 0.5*wd*math.cos(wd*T)
-            # v = math.sqrt(vx**2 + vy**2)
-            #
-            # Robot.ref[name] = np.array([[v, 0.0, 0.0], [0.0, 0.0, wd]])
-            # print(v)
+
 
             # circle
             wd = 0
@@ -768,16 +610,13 @@ if __name__ == '__main__':
             v = 0
             # ref_v = 1000
             ref_v = 0
-            ref_w = 1
+            ref_w = 0
 
             Robot.ref[name] = np.array([[ref_v, 0.0, 0.0], [0.0, 0.0, ref_w]])
     Robot.plot = False
     Robot.stop = True
 
-    print("average", np.mean(Robot.dt[1:]))
-
-
-
+    print("average", np.mean(np.diff(Robot.t[1:])))
 
 
     # stop the robot
@@ -787,13 +626,10 @@ if __name__ == '__main__':
     t = time.time()
     while (time.time() - t < 1):
         Robot.johnny_update()
+        Robot.johnny_control()
         Robot.send_data()
 
         # live_update_demo(False) # 28 fps
-
-
-
-
 
 
 

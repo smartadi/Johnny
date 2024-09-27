@@ -67,7 +67,9 @@ void loop()
    delay(5000);
    motor1.brake();
    motor2.brake();
-     delay(1000);
+     delay(1000);  
+  motor2.drive(100);
+  motor1.drive(100);   
    //Use of the drive function which takes as arguements the speed
    //and optional duration.  A negative speed will cause it to go
    //backwards.  Speed can be from -255 to 255.  Also use of the 

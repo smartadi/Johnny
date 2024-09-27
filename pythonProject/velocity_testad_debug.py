@@ -313,6 +313,7 @@ class Server:
 
 
         # perform a check for matching vicon and xbee agents
+        self.t0 = time.time()
         self.active_agents = None
         self.nagents = len(self.subjectNames)
         self.t = 0
@@ -321,9 +322,8 @@ class Server:
         self.init_var()
 
         self.stop = False
-        self.live_plot(True)
-        self.t = [0]
-        self.dt = []
+        # self.live_plot(True)
+        self.t = np.zeros((1,50), dtype = float)
 
         self.johnny_update()
 
@@ -332,10 +332,11 @@ class Server:
 
         self.cycle()
 
+
     def johnny_update(self):
         # sleep(0.01)
-        self.dt.append(self.t[-1] - time.time())
-        self.t.append(time.time())
+        self.t[0,:-1] = self.t[0,1:]
+        self.t[0,-1] = time.time() - self.t0
         self.vicon.GetFrame()
 
         for subName in self.subjectNames:
@@ -404,7 +405,7 @@ class Server:
             Kiv = 0.1 #0.01
             Kiw = 0.1 #0.005
 
-            Kkv = 1
+            Kkv = 50
             Kkw = 1
 
 
@@ -416,8 +417,8 @@ class Server:
 
 
 
-            vel = (Kkv*np.linalg.norm(ref_vel[0])) + (Kpv*Ev[-1] + Kdv * (Ev[-1] - Ev[-2]) + Kiv * sum(Ev))/500
-            om = Kkw*ref_vrot[2] + Kpw*Ew[-1] + Kdw * (Ew[-1] - Ew[-2]) + np.minimum(Kiw*1,Kiw * sum(Ew))
+            vel = (Kkv*np.linalg.norm(ref_vel[0]))      +     (Kpv*Ev[-1] + Kdv * (Ev[-1] - Ev[-2]) + Kiv * sum(Ev))/500
+            om = Kkw*ref_vrot[2]           +            Kpw*Ew[-1] + Kdw * (Ew[-1] - Ew[-2]) + np.minimum(Kiw*1,Kiw * sum(Ew))
             #print('ev=',ev)
             #print('iev=',self.pid_vals[subName][2][0])
             #print('dev=',self.pid_vals[subName][1][0])
@@ -449,9 +450,12 @@ class Server:
 
             # print("v sent")
             # print(data_rz)
-
-            #print('Velocity : '+ str(vel) +',   data_V : '+ str(data_v) + ',  Omega :'+str(om) + ',  data_w :'+ str(data_rz))
-
+            #ddt=np.mean(Robot.dt[1:])
+            # print(self.t[0,-1])
+            dt = np.diff(self.t)
+            # print(dt[0,-1])
+            print('Velocity : '+ str(vel) +',   data_V : '+ str(data_v) + ',  Omega :'+str(om) + ',  data_w :'+ str(data_rz)+ ',  dt :' + str(np.max(dt)))
+            #np.mean(Robot.dt[1:])
             self.data.update({subName: [data_v, data_rz]})
 
 
@@ -464,7 +468,7 @@ class Server:
         x = np.zeros(t.shape)
         y = np.zeros(t.shape)
         th = np.zeros(t.shape)
-        dt = np.zeros(t.shape)
+        tt = np.zeros(t.shape)
 
         fig = plt.figure(figsize=(15,10))
         ax1 = fig.add_subplot(3, 2, 1)
@@ -504,7 +508,7 @@ class Server:
         ax5.set_xlabel('yaw')
 
         ax6.set_xlim(t.min(), t.max())
-        ax6.set_ylim([-1000, 0])
+        ax6.set_ylim([0, 0.05])
         ax6.set_xlabel('dt')
 
 
@@ -517,7 +521,7 @@ class Server:
             ax3background = fig.canvas.copy_from_bbox(ax3.bbox)
             ax4background = fig.canvas.copy_from_bbox(ax4.bbox)
             ax5background = fig.canvas.copy_from_bbox(ax5.bbox)
-
+            ax6background = fig.canvas.copy_from_bbox(ax6.bbox)
         plt.show(block=False)
 
         # t_start = time.time()
@@ -533,6 +537,7 @@ class Server:
 
             xx0 = self.mover[self.subjectNames[0]][0]
             th0 = self.mover[self.subjectNames[0]][1]
+            t0 = np.diff(self.t)
 
             #print("vel:::")
             #print(v)
@@ -552,11 +557,9 @@ class Server:
             x = np.concatenate((x[1:],[xx0[0]]))
             y = np.concatenate((y[1:],[xx0[1]]))
             th = np.concatenate((th[1:],[th0[2]]))
-            print([int(1000*self.dt[-1])])
-            print(int(1000 * self.dt[-1]))
-            print((1000 * self.dt[-1]))
 
-            #dt = np.concatenate(dt[1:],0)
+
+            # dt = np.concatenate(dt[1:],[dt0])
 
 
             line1.set_data(t, Vx)
@@ -564,7 +567,7 @@ class Server:
             line3.set_data(t, x)
             line4.set_data(t, y)
             line5.set_data(t, th)
-            #line6.set_data(t, dt)
+            line6.set_data(t, t0[0,-len(t):])
             #line2.set_data(x, np.sin(x / 3. + k))
             # tx = 'Mean Frame Rate:\n {fps:.3f}FPS'.format(fps=((i + 1) / (time.time() - t_start)))
             # text1.set_text(tx)
@@ -578,6 +581,7 @@ class Server:
                 fig.canvas.restore_region(ax3background)
                 fig.canvas.restore_region(ax4background)
                 fig.canvas.restore_region(ax5background)
+                fig.canvas.restore_region(ax6background)
 
                 # redraw just the points
                 ax1.draw_artist(line1)
@@ -585,7 +589,7 @@ class Server:
                 ax3.draw_artist(line3)
                 ax4.draw_artist(line4)
                 ax5.draw_artist(line5)
-
+                ax6.draw_artist(line6)
 
                 # fill in the axes rectangle
                 fig.canvas.blit(ax1.bbox)
@@ -593,6 +597,7 @@ class Server:
                 fig.canvas.blit(ax3.bbox)
                 fig.canvas.blit(ax4.bbox)
                 fig.canvas.blit(ax5.bbox)
+                fig.canvas.blit(ax6.bbox)
 
             else:
 
@@ -626,6 +631,8 @@ class Server:
             # print(self.remote_devicess[i])
             # print(d)
             i=i+1
+
+
 
 
     @threaded
@@ -711,7 +718,7 @@ if __name__ == '__main__':
     t0 = time.time()
     print("start")
     print(t0 - time.time())
-    D = 120
+    D = 100
 
     while( time.time()-t0 < D):
         #print("time")
@@ -767,14 +774,14 @@ if __name__ == '__main__':
             # vy = 0.5*wd*math.cos(wd*T)
             v = 0
             # ref_v = 1000
-            ref_v = 0
-            ref_w = 1
+            ref_v = 10
+            ref_w = 0
 
             Robot.ref[name] = np.array([[ref_v, 0.0, 0.0], [0.0, 0.0, ref_w]])
     Robot.plot = False
     Robot.stop = True
 
-    print("average", np.mean(Robot.dt[1:]))
+    print("average", np.mean(np.diff(Robot.t[1:])))
 
 
 

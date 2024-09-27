@@ -55,10 +55,10 @@ int l=0;
 float theta = 0;
 
 
-float Kwr = 0.98;
+float Kwr = 0.95;
 float Kwl = 1;
 
-float Kvr = 0.98*1;
+float Kvr = 0.95*1;
 //float Kvl = 0.9;
 float Kvl = 1*1;
 
@@ -157,7 +157,7 @@ void loop()
         // Convert data
         theta = w;
         //theta = (theta-100)/1800*3.14;
-        theta = (theta-500)/1;
+        theta = (theta-500)/100;
 
 
         

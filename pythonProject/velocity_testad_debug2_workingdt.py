@@ -25,6 +25,7 @@ import matplotlib.pyplot as plt
 import math
 from scipy.spatial.transform import Rotation as R
 import time
+import csv
 
 event = Event()
 data_lock = Lock()
@@ -120,6 +121,7 @@ def vicon_init():
         idata.update({subName: np.array([pos, rot,pos,rot])})
 
     idata.update({'dt': 0})
+
 
     # Start Vicon
     sleep(0.1)
@@ -313,6 +315,7 @@ class Server:
 
 
         # perform a check for matching vicon and xbee agents
+        self.t0 = time.time()
         self.active_agents = None
         self.nagents = len(self.subjectNames)
         self.t = 0
@@ -321,9 +324,8 @@ class Server:
         self.init_var()
 
         self.stop = False
-        self.live_plot(True)
-        self.t = [0]
-        self.dt = []
+        # self.live_plot(True)
+        self.t = np.zeros((1,50), dtype = float)
 
         self.johnny_update()
 
@@ -332,10 +334,11 @@ class Server:
 
         self.cycle()
 
+
     def johnny_update(self):
         # sleep(0.01)
-        self.dt.append(self.t[-1] - time.time())
-        self.t.append(time.time())
+        self.t[0,:-1] = self.t[0,1:]
+        self.t[0,-1] = time.time() - self.t0
         self.vicon.GetFrame()
 
         for subName in self.subjectNames:
@@ -371,26 +374,6 @@ class Server:
 
 
 
-
-            # ev = np.linalg.norm(ref_vel) - np.linalg.norm(v)
-            # ev = ref_vel[0] - np.linalg.norm(v[:2])
-            # ew = ref_vrot[2] - vr[2]
-
-            # self.pd_vals[subName][1] = ev - self.pd_vals[subName][0]
-            # self.pd_vals[subName][0] = ev
-            #
-            # self.pd_vals[subName][3] = ew - self.pd_vals[subName][2]
-            # self.pd_vals[subName][2] = ew
-            #
-            # iv = self.error_vals[subName][0]
-            # iw = self.error_vals[subName][1]
-            #
-            # iv[:-1] = iv[1:]
-            # iw[:-1] = iw[1:]
-            # iv[-1] = ev
-            # iw[-1] = ew
-
-
             self.error_vals.update({subName: np.array([Ev,Ew])})
             # proportional
             Kpv = 10
@@ -404,37 +387,22 @@ class Server:
             Kiv = 0.1 #0.01
             Kiw = 0.1 #0.005
 
-            Kkv = 1
+            Kkv = 50
             Kkw = 1
 
 
 
 
 
+            vel = (Kkv*np.linalg.norm(ref_vel[0]))      +     (Kpv*Ev[-1] + Kdv * (Ev[-1] - Ev[-2]) + Kiv * sum(Ev))/500
+            om = Kkw*ref_vrot[2]           +            Kpw*Ew[-1] + Kdw * (Ew[-1] - Ew[-2]) + np.minimum(Kiw*1,Kiw * sum(Ew))
 
-
-
-
-
-            vel = (Kkv*np.linalg.norm(ref_vel[0])) + (Kpv*Ev[-1] + Kdv * (Ev[-1] - Ev[-2]) + Kiv * sum(Ev))/500
-            om = Kkw*ref_vrot[2] + Kpw*Ew[-1] + Kdw * (Ew[-1] - Ew[-2]) + np.minimum(Kiw*1,Kiw * sum(Ew))
-            #print('ev=',ev)
-            #print('iev=',self.pid_vals[subName][2][0])
-            #print('dev=',self.pid_vals[subName][1][0])
-
-            #print('w')
-            #print(data_rz)
-            # print('v')
-            # print(v)
-            # print("data_v")
-            # print(data_v)
 
             data_rz = int((100 * om)) + 500
             data_v = int(np.linalg.norm(vel) * 0.25) + 100
+            #data_rz=500
+            #data_v=100
 
-            # print('conversion')
-            # print(data_rz)
-            # print(data_v)
 
             if (data_v > 900):
                 data_v = 900
@@ -445,160 +413,19 @@ class Server:
             if (data_rz < 100):
                 data_rz = 100
 
-            # data_rz = 1800
+            dt = np.diff(self.t)
+            print('Velocity : '+ str(vel) +',   data_V : '+ str(data_v) + ',  Omega :'+str(om) + ',  data_w :'+ str(data_rz)+ ',  dt :' + str(np.mean(dt)))
+            #print('t : '+ str(self.t))
+            mean_dt=np.mean(dt)
 
-            # print("v sent")
-            # print(data_rz)
-
-            #print('Velocity : '+ str(vel) +',   data_V : '+ str(data_v) + ',  Omega :'+str(om) + ',  data_w :'+ str(data_rz))
+            #mean_dt_list=np.concatenate(mean_dt_list,mean_dt,axis=0)
 
             self.data.update({subName: [data_v, data_rz]})
 
 
 
     @threaded
-    def live_plot(self, blit=False):
-        t = np.linspace(0, 50., num=100)
-        Vx = np.zeros(t.shape)
-        Vr = np.zeros(t.shape)
-        x = np.zeros(t.shape)
-        y = np.zeros(t.shape)
-        th = np.zeros(t.shape)
-        dt = np.zeros(t.shape)
 
-        fig = plt.figure(figsize=(15,10))
-        ax1 = fig.add_subplot(3, 2, 1)
-        ax2 = fig.add_subplot(3, 2, 2)
-        ax3 = fig.add_subplot(3, 2, 3)
-        ax4 = fig.add_subplot(3, 2, 4)
-        ax5 = fig.add_subplot(3, 2, 5)
-        ax6 = fig.add_subplot(3, 2, 6)
-
-        line1, = ax1.plot([], lw=3)
-        line2, = ax2.plot([], lw=3)
-        line3, = ax3.plot([], lw=3)
-        line4, = ax4.plot([], lw=3)
-        line5, = ax5.plot([], lw=3)
-        line6, = ax6.plot([], lw=3)
-
-
-        ax1.set_xlim(t.min(), t.max())
-        ax1.set_ylim([0, 750])
-        ax1.set_xlabel('V')
-
-        ax2.set_xlim(t.min(), t.max())
-        ax2.set_ylim([-3, 3])
-        ax2.set_xlabel('omega')
-
-        ax3.set_xlim(t.min(), t.max())
-        ax3.set_ylim([-1000, 1000])
-        ax3.set_xlabel('x')
-
-        ax4.set_xlim(t.min(), t.max())
-        ax4.set_ylim([-1000, 1000])
-        ax4.set_xlabel('y')
-
-
-        ax5.set_xlim(t.min(), t.max())
-        ax5.set_ylim([-10, 10])
-        ax5.set_xlabel('yaw')
-
-        ax6.set_xlim(t.min(), t.max())
-        ax6.set_ylim([-1000, 0])
-        ax6.set_xlabel('dt')
-
-
-        fig.canvas.draw()  # note that the first draw comes before setting data
-
-        if blit:
-            # cache the background
-            ax1background = fig.canvas.copy_from_bbox(ax1.bbox)
-            ax2background = fig.canvas.copy_from_bbox(ax2.bbox)
-            ax3background = fig.canvas.copy_from_bbox(ax3.bbox)
-            ax4background = fig.canvas.copy_from_bbox(ax4.bbox)
-            ax5background = fig.canvas.copy_from_bbox(ax5.bbox)
-
-        plt.show(block=False)
-
-        # t_start = time.time()
-        k = 0.
-
-        #for i in np.arange(10000):
-        while(self.plot == True):
-            from scipy.ndimage import shift
-
-            v = self.mover[self.subjectNames[0]][2]  # convert to 10cm/s
-            # v = self.rawvel  # convert to m/s
-            r0 = self.mover[self.subjectNames[0]][3]
-
-            xx0 = self.mover[self.subjectNames[0]][0]
-            th0 = self.mover[self.subjectNames[0]][1]
-
-            #print("vel:::")
-            #print(v)
-
-            #print("rot:::")
-            #print(r)
-
-            #print("pos:::")
-            #print(xx)
-
-            #print("th:::")
-            #print(th)
-            #vr = self.rfilter[subName][0]
-            #x =
-            Vx = np.concatenate((Vx[1:],[np.linalg.norm(v)]))
-            Vr = np.concatenate((Vr[1:],[r0[2]]))
-            x = np.concatenate((x[1:],[xx0[0]]))
-            y = np.concatenate((y[1:],[xx0[1]]))
-            th = np.concatenate((th[1:],[th0[2]]))
-            print([int(1000*self.dt[-1])])
-            print(int(1000 * self.dt[-1]))
-            print((1000 * self.dt[-1]))
-
-            #dt = np.concatenate(dt[1:],0)
-
-
-            line1.set_data(t, Vx)
-            line2.set_data(t, Vr)
-            line3.set_data(t, x)
-            line4.set_data(t, y)
-            line5.set_data(t, th)
-            #line6.set_data(t, dt)
-            #line2.set_data(x, np.sin(x / 3. + k))
-            # tx = 'Mean Frame Rate:\n {fps:.3f}FPS'.format(fps=((i + 1) / (time.time() - t_start)))
-            # text1.set_text(tx)
-            # text2.set_text(tx)
-            # print tx
-            k += 0.11
-            if blit:
-                # restore background
-                fig.canvas.restore_region(ax1background)
-                fig.canvas.restore_region(ax2background)
-                fig.canvas.restore_region(ax3background)
-                fig.canvas.restore_region(ax4background)
-                fig.canvas.restore_region(ax5background)
-
-                # redraw just the points
-                ax1.draw_artist(line1)
-                ax2.draw_artist(line2)
-                ax3.draw_artist(line3)
-                ax4.draw_artist(line4)
-                ax5.draw_artist(line5)
-
-
-                # fill in the axes rectangle
-                fig.canvas.blit(ax1.bbox)
-                fig.canvas.blit(ax2.bbox)
-                fig.canvas.blit(ax3.bbox)
-                fig.canvas.blit(ax4.bbox)
-                fig.canvas.blit(ax5.bbox)
-
-            else:
-
-                fig.canvas.draw()
-
-            fig.canvas.flush_events()
 
 
     def get_agents(self):
@@ -626,6 +453,8 @@ class Server:
             # print(self.remote_devicess[i])
             # print(d)
             i=i+1
+
+
 
 
     @threaded
@@ -711,21 +540,12 @@ if __name__ == '__main__':
     t0 = time.time()
     print("start")
     print(t0 - time.time())
-    D = 120
+    D = 200
 
     while( time.time()-t0 < D):
-        #print("time")
-        # print(t0 - time.time())
-
         t = time.time()
         T = time.time()-t0
-        # while(time.time()-t<0.05):
-        #     # print("loop")
-        #     # print( time.time()-t)
-        #     Robot.johnny_update()
-        #     Robot.send_data()
 
-        # print(T)
 
         for name in Robot.subjectNames:
             a = Robot.get_estimate()
@@ -744,22 +564,7 @@ if __name__ == '__main__':
             ep = [0,0] - p
             ref_v = Kv*np.linalg.norm(ep)
             ref_w = Kw*(np.arctan2(ep[1],ep[0])-r)
-            # print('ref theta: '+ str(np.rad2deg(np.arctan2(ep[1],ep[0]))) + '  theta: '+ str( np.rad2deg(r)) + '   ref_w: '+ str(ref_w))
-            # print(r)
-            # print(np.arctan2(ep[1], ep[0]))
-            # print(r)
-            #print(r)
-            #print(np.arctan2(ep[1],ep[0]))
-            # print(ref_v)
-            # print(ref_w)
-            # figure 8
-            # wd = 1
-            # vx = 0.5*wd*math.sin(wd*T)
-            # vy = 0.5*wd*math.cos(wd*T)
-            # v = math.sqrt(vx**2 + vy**2)
-            #
-            # Robot.ref[name] = np.array([[v, 0.0, 0.0], [0.0, 0.0, wd]])
-            # print(v)
+
 
             # circle
             wd = 0
@@ -768,15 +573,21 @@ if __name__ == '__main__':
             v = 0
             # ref_v = 1000
             ref_v = 0
-            ref_w = 1
+            ref_w = 0
 
             Robot.ref[name] = np.array([[ref_v, 0.0, 0.0], [0.0, 0.0, ref_w]])
     Robot.plot = False
     Robot.stop = True
 
-    print("average", np.mean(Robot.dt[1:]))
+    print("average", np.mean(np.diff(Robot.t[1:])))
 
+    # exporting a list variable into the csv file
+    input_variable = Robot.t[1:]
 
+    # Example.csv gets created in the current working directory
+    with open('Example.csv', 'w', newline='') as csvfile:
+        my_writer = csv.writer(csvfile, delimiter=' ')
+        my_writer.writerow(input_variable)
 
 
 
@@ -790,10 +601,6 @@ if __name__ == '__main__':
         Robot.send_data()
 
         # live_update_demo(False) # 28 fps
-
-
-
-
 
 
 
