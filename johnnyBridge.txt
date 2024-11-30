@@ -1,0 +1,15 @@
+call C:\dev\ros2_ws\install\setup.bat
+
+ros2 run johnny_bridge bridge
+
+
+cd C:\dev\ros2_ws
+call C:\dev\ros2_humble\setup.bat
+colcon build --merge-install
+
+
+
+
+
+call C:\dev\ros2_humble\local_setup.bat
+
