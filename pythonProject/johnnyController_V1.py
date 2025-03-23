@@ -1,6 +1,6 @@
-# Working version
+# Main code for johnny
 
-
+# to add filter write the coefficients in a  csv file and read coeff from there
 
 
 import matplotlib.pyplot as plt
@@ -9,6 +9,11 @@ from numpy import linalg as LA
 from vicon_dssdk import ViconDataStream
 import argparse
 import sys
+import socket
+
+
+import os
+import logging
 from digi.xbee.devices import XBeeDevice
 from digi.xbee.devices import RemoteZigBeeDevice
 
@@ -25,6 +30,8 @@ import matplotlib.pyplot as plt
 import math
 from scipy.spatial.transform import Rotation as R
 import time
+import csv
+import pandas as pd
 
 event = Event()
 data_lock = Lock()
@@ -96,6 +103,7 @@ def vicon_init():
             client.GetFrame()
 
     client.SetStreamMode(ViconDataStream.Client.StreamMode.EServerPush)
+
     print('Get Frame Pull', client.GetFrame(), client.GetFrameNumber())
     print('Segments', client.IsSegmentDataEnabled())
 
@@ -165,6 +173,29 @@ def xbee_init(names):
 
 
 ###### filters
+# def lowpass_filter(f, m):
+#     # order 4
+#     a1 = 0.2998
+#     a2 = 0.2477
+#     a3 = 0.2726
+#     a4 = 0.2471
+#     a5 = 0.2998
+#
+#     y0 = a1 * m + a2 * f[0,:] + a3 * f[1,:] + a4 * f[2,:] + a5 * f[3,:]
+#
+#     f[3, :] = f[2, :]
+#     f[2, :] = f[1, :]
+#     f[1, :] = f[0, :]
+#     f[0, :] = m
+#     #print("filtered")
+#     # print(y0)
+#     # print(y1)
+#     # print(y2)
+#     # print(x0)
+#     # print(x1)
+#     # print(x2)
+#     return y0, f
+
 def lowpass_vel_filter(f, m):
     # order 4
     a1 = 0.2998
@@ -200,8 +231,37 @@ def lowpass_vel_filter(f, m):
     #a6 = 0.1371 #a6 = 0.19251
     #a7 = 0.1108 #a7 = 0.058623
 
-    y0 = a1 * m + a2 * f[0,:] + a3 * f[1,:] + a4 * f[2,:] + a5 * f[3,:]
-    y0 = a1 * m + a2 * f[0,:] + a3 * f[1,:] + a4 * f[2,:] + a5 * f[3,:] + a6 * f[4,:] + a7 * f[5,:]
+    # a1 = 0.03895
+    # a2 = 0.25775
+    # a3 = 0.2110
+    # a4 = 0.2543
+    # a5 = 0.2110
+    # a6 = 0.25775
+    # a7 = 0.03895
+    a1 = 1/13
+    a2 = 1/13
+    a3 = 1/13
+    a4 = 1/13
+    a5 = 1/13
+    a6 = 1/13
+    a7 = 1/13
+    a8 = 1/13
+    a9 = 1/13
+    a10 = 1/13
+    a11 = 1/13
+    a12 = 1/13
+    a13 = 1/13
+    # y0 = a1 * m + a2 * f[0,:] + a3 * f[1,:] + a4 * f[2,:] + a5 * f[3,:]
+    # y0 = a1 * m + a2 * f[0,:] + a3 * f[1,:] + a4 * f[2,:] + a5 * f[3,:] + a6 * f[4,:] + a7 * f[5,:]
+    y0 = a1 * m + a2 * f[0, :] + a3 * f[1, :] + a4 * f[2, :] + a5 * f[3, :] + a6 * f[4, :] + a7 * f[5, :] + a8 * f[6, :] + a9 * f[7, :] + a10 * f[8, :] + a11 * f[9, :] + a12 * f[10, :] + a13 * f[11, :]
+
+    f[12, :] = f[11, :]
+    f[11, :] = f[10, :]
+    f[10, :] = f[9, :]
+    f[9, :] = f[8, :]
+    f[8, :] = f[7, :]
+    f[7, :] = f[6, :]
+    f[6, :] = f[5, :]
     f[5, :] = f[4, :]
     f[4, :] = f[3, :]
     f[3, :] = f[2, :]
@@ -218,25 +278,7 @@ def lowpass_vel_filter(f, m):
     return y0, f
 
 def derivative_vel_filter(f, m):
-    # freq_vec=[0 0.5 0.55 1]
-    a1 = 0.0292
-    a2 = -0.1952
-    a3 = 0.2560
-    a4 = 0.2219
-    a5 = 0
-    a6 = -0.2219
-    a7 = -0.2560
-    a8 = 0.1952
-    a9 = -0.0292
 
-    #freq vec=[0.1 0.5 0.55 1]
-    a1 = -0.2120
-    a2 = 0.1909
-    a3 = 0.20496
-    a4 = 0
-    a5 = -0.20496
-    a6 = -0.1909
-    a7 = 0.2120
     # freq vec=[0.05 0.3 0.5 1]
     a1 = -0.4296
     a2 = 0.5559
@@ -245,65 +287,10 @@ def derivative_vel_filter(f, m):
     a5 = -0.2737
     a6 = -0.5559
     a7 = 0.4296
-    # freq vec=[0.05 0.3 0.5 1]
-    a1 = -0.3618
-    a2 = 0.3603
-    a3 = 0.1742
-    a4 = 0.0649
-    a5 = 0
-    a6 = -0.0649
-    a7 = -0.1742
-    a8 = -0.3603
-    a9 = 0.3618
-    # freq vec=[0 0.5 0.55 1] not good
-    a1 = 0.05998
-    a2 = -0.02583
-    a3 = -0.17661
-    a4 = 0.25457
-    a5 = 0.19000
-    a6 = 0
-    a7 = -0.19000
-    a8 = -0.25457
-    a9 = 0.17661
-    a10 = 0.02583
-    a11 = -0.05998
-    # freq vec=[0 0.3 0.6 1] don't use
-    a1 = 0.02752
-    a2 = -0.09173
-    a3 = -0.00669
-    a4 = 0.23478
-    a5 = 0.30007
-    a6 = 0
-    a7 = -0.30007
-    a8 = -0.23478
-    a9 = 0.00669
-    a10 = 0.09173
-    a11 = -0.02752
-    # freq vec=[0.05 0.3 0.5 1] usable
-    a1 = -0.2365
-    a2 = 0.2117
-    a3 = -0.0572
-    a4 = 0.1352
-    a5 = 0.2512
-    a6 = 0
-    a7 = -0.2512
-    a8 = -0.1352
-    a9 = 0.0572
-    a10 = -0.2117
-    a11 = 0.2365
-    # freq vec=[0.05 0.3 0.5 1] usable
-    a1 = -0.2365
-    a2 = 0.2117
-    a3 = -0.0572
-    a4 = 0.1352
-    a5 = 0.2512
-    a6 = 0
-    a7 = -0.2512
-    a8 = -0.1352
-    a9 = 0.0572
-    a10 = -0.2117
-    a11 = 0.2365
-    # freq vec=[0.05 0.3 0.5 1] best one
+
+
+
+    # # freq vec=[0.05 0.3 0.5 1] best one
     a1 = -0.1533
     a2 = 0.1950
     a3 = -0.1904
@@ -318,47 +305,20 @@ def derivative_vel_filter(f, m):
     a12 = -0.1950
     a13 = 0.1533
 
-    # freq vec=[0 0.1 0.2 1] very bad
-    #a1 = 0.3735
-    #a2 = 0.3706
-    #a3 = -0.1637
-    #a4 = 0
-    #a5 = 0.1637
-    #a6 = -0.3706
-    #a7 = -0.3735
 
-    # a1 = -0.124
-    # a2 = 0.248
-    # a3 = 0.248
-    # a4 = 0.248
-    # a5 = -0.124
 
-    #y0 = 60*(a1 * m + a2 * f[0, :] + a3 * f[1, :] + a4 * f[2, :] + a5 * f[3, :] + a6 * f[4, :] + a7 * f[5, :]  + a8 * f[6,:] + a9 *f[7,:])
-    y0 = 100*(a1 * m + a2 * f[0, :] + a3 * f[1, :] + a4 * f[2, :] + a5 * f[3, :] + a6 * f[4, :] + a7 * f[5, :]  + a8 * f[6,:] + a9 *f[7,:])
-    y0 = 100*(a1 * m + a2 * f[0, :] + a3 * f[1, :] + a4 * f[2, :] + a5 * f[3, :] + a6 * f[4, :] + a7 * f[5, :]  + a8 * f[6,:] + a9 *f[7,:] + a10 *f[8,:]+ a11 *f[9,:])
-    y0 = 100*(a1 * m + a2 * f[0, :] + a3 * f[1, :] + a4 * f[2, :] + a5 * f[3, :] + a6 * f[4, :] + a7 * f[5, :]  + a8 * f[6,:] + a9 *f[7,:] + a10 *f[8,:]+ a11 *f[9,:]+ a12 *f[10,:]+ a13 *f[11,:])
-    #y0 = 100*(a1 * m + a2 * f[0, :] + a3 * f[1, :] + a4 * f[2, :] + a5 * f[3, :] + a6 * f[4, :] + a7 * f[5, :])
-    #f[13, :] = f[12, :]
-    #f[12, :] = f[11, :]
-    f[11, :] = f[10, :]
-    f[10, :] = f[9, :]
-    f[9, :] = f[8, :]
-    f[8, :] = f[7, :]
-    f[7, :] = f[6, :]
-    f[6, :] = f[5, :]
-    f[5, :] = f[4, :]
-    f[4, :] = f[3, :]
-    f[3, :] = f[2, :]
-    f[2, :] = f[1, :]
-    f[1, :] = f[0, :]
-    f[0, :] = m
-    # print("filtered")
-    # print(y0)
-    # print(y1)
-    # print(y2)
-    # print(x0)
-    # print(x1)
-    # print(x2)
+    ## backward difference
+    a = np.array([25,-48,36,-16,3])
+    a = a/12*(5/6.3)
+    y0 = 0
+    for i in range(5):
+        if i==0:
+            y0 = y0 + a[i]*m
+        else:
+            y0 = y0 + a[i]*f[i-1,:]
+
+
+
     return y0, f
 
 
@@ -442,7 +402,7 @@ class Server:
 
         self.stop = False
         # self.live_plot(True)
-        self.t = np.zeros((1,50), dtype = float)
+        self.t = np.zeros((1,2000), dtype = float)
 
         self.johnny_update()
         self.johnny_control()
@@ -457,7 +417,11 @@ class Server:
         self.vd=0
 
         self.cycle_update()
+        self.cycle_send()
         self.cycle_control()
+
+
+
 
 
     def johnny_update(self): #updating the state
@@ -474,18 +438,25 @@ class Server:
             #ref_vrot = self.ref[subName][1]
             #ref_vel = self.ref[subName][0]
             frame_rate=self.vicon.GetFrameRate()
-            [vf, pd] = derivative_vel_filter(self.pdata[subName], pos)
+
+            # add position lpf
+            [pf, pd] = lowpass_vel_filter(self.pdata[subName], pos)                       # change name
+            [vf, vd] = derivative_vel_filter(pd, pf)
             [vflp, vd] = lowpass_vel_filter(self.vfilter[subName], vf)
-            self.vf=vf
-            self.pd=pd
-            self.vflp=vflp
-            self.vd= vd
+
+
+
+
             self.pdata.update({subName: pd})
             pdata=self.pdata
             #pdata_array=pdata[subName] #from mm to cm
             self.vfilter.update({subName: vd})
+
+
             self.rfilter.update({subName: om_filter(self.rfilter[subName], rot)})
-            self.mover[subName] = np.array([pos, rot, vflp, self.rfilter[subName][0]])
+
+            self.mover[subName] = np.array([pf, rot, vflp, self.rfilter[subName][0]])
+
             dt=np.mean(np.diff(self.t))
             #print('update cycle'+' dt: '+str(dt))
             #pdata=pdata/10 #from mm to cm
@@ -503,19 +474,21 @@ class Server:
         #sleep(0.02)
         self.t[0,:-1] = self.t[0,1:]
         self.t[0,-1] = time.time() - self.t0
-        self.vicon.GetFrame()
+        v_data = self.vfilter
 
         for subName in self.subjectNames:
 
+            T = self.t[0]
+            T_last=T[-1]
 
 
             ref_vrot = self.ref[subName][1]
             ref_vel = self.ref[subName][0]
+            raw_pos = np.asarray(self.vicon.GetSegmentGlobalTranslation(subName, subName)[0])
             pos=self.mover[subName][0]
             rot=self.mover[subName][1]
             vflp=self.mover[subName][2]
 
-            T = self.t[0]
 
 
             Rz = R.from_euler('z', rot[2], degrees=False).as_matrix()
@@ -530,24 +503,11 @@ class Server:
             Ev[-1] = ref_vel[0] - np.linalg.norm(v[:2])
             #Ew[-1] = ref_vrot[2] - vr[2]
 
+            # only keep velocity PID
 
 
-            # position controller
-            # global origin (cross mark on the ground) = [-351,685,76] (x,y,z) in mm
 
-            count = T[-1]%20
 
-            if count%2==0:
-
-                P_des = np.array([-35.1, 68.5, 7.6])  # desired position in cm
-            else:
-                P_des = np.array([85.5, 59.2, 7.6])  # desired position in cm
-            P_des = np.array([-35.1, 68.5, 7.6])  # desired position in cm
-            #P_des = np.array([85.5, 59.2, 7.6])  # desired position in cm
-            #print(T[-1])
-
-            P_des = np.array([-35.1, 68.5, 7.6])  # desired position in cm
-            P_des = np.array([23.8, 58.8, 7.9])  # desired position in cm
             P_des = np.array([75.4, -8.9, 8.6])
             #P_des = self.mover['Johnny07'][0]/10
             P=pos[0:2]/1000 #in m
@@ -591,17 +551,14 @@ class Server:
 
 
             # to test each johnny, enter the name and the desired values
-            #self.ref['Johnny07'][1] = 0 # angular rate
-            #self.ref['Johnny07'][0] = 0 # linear velocity
-            self.ref['Johnny04'][1] = 10
-            self.ref['Johnny04'][0] = ref_vel_comm
-            #self.ref['Johnny08'][1] = ref_vrot_comm
-            #self.ref['Johnny08'][0] = ref_vel_comm
+            self.ref['Johnny07'][1] = 0 # angular rate
+            self.ref['Johnny07'][0] = 10 # linear velocity
+            # self.ref['Johnny07'][0] = 6
             ref_vrot = self.ref[subName][1]
             ref_vel = self.ref[subName][0]
-            print(subName + '  Linear_velocity: ' + str(ref_vel[0])+'   Angular velocity:  ' + str(ref_vrot[2])+'  Pos  '+ str(pos)+ '  P_des  '+str(P_des))
-
-
+            #print(subName + '  Linear_velocity: ' + str(ref_vel[0])+'   Angular velocity:  ' + str(ref_vrot[2])+'  Pos  '+ str(pos/10)+ '  P_des  '+str(P_des))
+            # print(subName + '  Linear_velocity: ' + str(ref_vel[0]) + '   Angular velocity:  ' + str(
+            #     ref_vrot[2]) + '  Pos  ' + str(self.pdata) + '  t  ' + str(self.t))
 
 
             # enter the desired angular and translational velocities for testing (deg/s, cm/s)
@@ -611,8 +568,7 @@ class Server:
             # velocity open loop control (neutral input=100)
             data_v=14.58*ref_vel[0]+122
 
-            if abs(data_v-100)<=22:
-                data_v=100
+
 
 
             data_v = round(data_v)
@@ -676,8 +632,13 @@ class Server:
             Ew[-1] = (ref_vrot[2] - vr[2]) # transfer error to degree
 
             # velocity controller
-            #data_v = data_v     +     (Kpv*Ev[-1] + Kdv * (Ev[-1] - Ev[-2]) + Kiv * sum(Ev))/500
-
+            data_v = data_v + (Kpv*Ev[-1] + Kdv * (Ev[-1] - Ev[-2]) + Kiv * sum(Ev))/500
+            # data_v = data_v + (Kpv * Ev[-1] + 0 * Kdv * (Ev[-1] - Ev[-2])) / 500
+            # ensure no backwoard motion
+            data_v = round(data_v)
+            if abs(data_v-100)<=22:
+                data_v=100
+            # data_v = data_v + (Kpv * Ev[-1] + 0*Kdv * (Ev[-1] - Ev[-2]) ) / 500
             # angular rate controller (normal reference value + )
             data_rz = data_rz + Kpw * Ew[-1] + Kdw * (Ew[-1] - Ew[-2]) + np.minimum(Kiw * 1, Kiw * sum(Ew))
             data_rz=round(data_rz)
@@ -685,26 +646,25 @@ class Server:
             if (data_v > 260):
                 data_v = 260
 
-            if (data_rz > 600):
-                data_rz = 600
+            if (data_rz > 550):
+                data_rz = 550
 
-            if (data_rz < 400):
-                data_rz = 400
+            if (data_rz < 450):
+                data_rz = 450
 
             # print('control cycle')
             self.data.update({subName: [data_v, data_rz]})
-
-
+            # print("v_des:   ", ref_vel[0], "  vflp:   ", np.linalg.norm(vflp[:2]), "    Ev:    ", Ev[-1],
+            #       "     raw pos:    ", raw_pos, "   filtered pos:  ", pos)
+            print("v_des:   ", ref_vel[0], "  vflp:   ", np.linalg.norm(vflp[:2]), "    Ev:    ", Ev[-1]," datav: ",data_v," datarz: ",data_rz)
     @threaded
-
-
-
     def get_agents(self):
         # get agent names
         return self.subjectNames
 
     def get_frame(self):
         print('Vicon frame')
+
 
     def send_data(self):
         # broadcast
@@ -717,7 +677,7 @@ class Server:
             # print(name)
             # d = str(self.mover[name][0])+ ',' + str(self.mover[name][1])
             d = str(self.data[name][0]) + "," + str(self.data[name][1])
-            print( name + '  d= ',d)
+            #print( name + '  d= ',d)
             self.xbee.send_data_async(self.remote_devicess[i], d)
             # print('DATA')
             # print(name)
@@ -731,41 +691,45 @@ class Server:
     def cycle_update(self):
         while (True):
             self.johnny_update()
-            #dt_max = np.max(np.diff(self.t))
-            #self.johnny_control()
-            self.send_data()
-            #print('dt_max :' + str(dt_max))
+            # self.send_data()
             if self.stop == True:
                 break
 
-            #dt=np.diff(self.t)
-            #dt_mean=np.mean(dt)
-            #dt_var=np.var(dt)
-            #dt_max = np.max(dt)
-            #print('dt_mean : '+str(dt_mean)+ ' dt_var : '+str(dt_var)+' dt_max : '+str(dt_max))
-            #print('cycle11')
+    @threaded  # this thread is for updating the data
+    def cycle_send(self):
+        while (True):
+            # self.johnny_update()
+            self.send_data()
+            if self.stop == True:
+                break
+
 
 
     @threaded # this thread is only for control and sending the data
     def cycle_control(self):
         while (True):
-            #sleep(0.05)
-            #self.johnny_update()
-            #dt_max = np.max(np.diff(self.t))
             self.johnny_control()
-            # self.send_data()
-            #print('dt_max :' + str(dt_max))
             if self.stop == True:
                 break
-            #dt=np.mean(np.diff(self.t))
-            # print('dt: '+str(dt))
-            #print('cycle22')
+
+    def get_pdata(self):
+        return self.pdata
 
 
-    def get_estimate(self):
-        # print('')
-        # return np.array([self.t, self.mover])
-        return self.mover
+
+    # # for ROS
+    # def get_estimate(self):
+    #     # print('')
+    #     # return np.array([self.t, self.mover])
+    #     return self.mover
+    #
+    # # for ROS
+    # def get_estimate(self,ref):
+    #     # print('')
+    #     self.ref = ref
+    #     # return np.array([self.t, self.mover])
+    #     return self.ref
+
 
     def end(self):
 
@@ -781,15 +745,19 @@ class Server:
         for name in self.subjectNames:
             # Robot.ref[name] = np.array([[0,0,0],[0,0,0]])
             self.ref.update({name: np.array([[0, 0, 0], [0, 0, 0]])})
-            self.vfilter.update({name: np.zeros((10, 3))})
-            self.pdata.update({name: np.zeros((20, 3))})
+            self.vfilter.update({name: np.zeros((13, 3))})
+            self.pdata.update({name: np.zeros((13, 3))})
             self.rfilter.update({name: np.zeros((4, 3))})
-
+            #self.t = np.zeros((1, 2000), dtype=float)
+            #self.t.update({name: np.zeros((1, 2000))})
             # store proportional and derivative errors
             self.error_vals.update({name: np.zeros((2, 50))})
 
             # store integral errors
             self.integral_vals.update({name: np.zeros((2, 50))})
+
+
+
 
     def filtercycle(self):
         for i in range(100):
@@ -821,6 +789,16 @@ class Server:
 
 # Press the green button in the gutter to run the script.
 if __name__ == '__main__':
+
+
+
+    Samp_Num = 80000 # enter the desired number of samples
+
+
+
+
+
+
     print('PyCharm')
 
     Robot = Server()
@@ -837,10 +815,16 @@ if __name__ == '__main__':
     t0 = time.time()
     print("start")
     print(t0 - time.time())
-    D = 1000
-    T_history = [0]
+    D = 200
+    T_history = np.array([[0]])
     # data = np.zeros((1,10000))
     counter = 1
+    Position = np.array([[0, 0]])
+    Rotation = np.array([[0]])
+    Distance_PNT = np.array([[0,0,0]])
+    Distance_vicon = np.array([[0, 0, 0]])
+    #os.system("TELNET 172.20.10.3 23 -f " + str(time.time()))
+    #os.system("sen s")
     while( time.time()-t0 < D):
         t = time.time()
         T = time.time()-t0
@@ -849,12 +833,19 @@ if __name__ == '__main__':
 
 
         for name in Robot.subjectNames:
+            T = np.array([[T]])
+
             a = Robot.get_estimate()
             # print(a)
             p = a[name][0][:2]
+            p_array = np.array([p])
+
             v = a[name][2][0]  # convert to m/s
             r = a[name][1][2]
             w = a[name][3][2]
+            r_array = np.array([[r]])
+
+
 
             # print(v)
 
@@ -881,11 +872,44 @@ if __name__ == '__main__':
             #Robot.ref['Johnny07'] = np.array([[0, 0.0, 0.0], [0.0, 0.0, 0]])
             #print(type(name))
             #Robot.ref['Johnny08'] = np.array([[0, 0.0, 0.0], [0.0, 0.0, 0]])
+
+            data = 0
+
+
+            Position = np.concatenate((Position, p_array), axis=0)
+            T_history = np.concatenate((T_history, T), axis=0)
+            Rotation = np.concatenate((Rotation,r_array),axis=0)
+
+
+
+            p = a[name][0][:3]
+            p_array = np.array([p])/1000
+            markerA = np.array([[-29.8673472,  -56.01771451, 2.608*100-7.86554049]])/100
+            markerB = np.array([[-77.60075907, 136.31153715, 2.608 * 100 - 7.86554049]]) / 100
+            markerC = np.array([[98.25260942,  0.90669935, 2.608 * 100 - 7.86554049]]) / 100
+            #Dist_vicon = LA.norm(p_array-markerA)*100
+            Dist_vicon = np.array([[LA.norm(p_array-markerA)*100, LA.norm(p_array-markerB)*100, LA.norm(p_array-markerC)*100]])
+            #2.608
+            #[58.92312925 128.27988516   7.40130789]
+            #reset rx tx
+            # print(" Progress: "+str(np.round(T_history.size/Samp_Num*100)))
+        if T_history.size >= Samp_Num:
+            break
+
     Robot.plot = False
     Robot.stop = True
 
     # np.savetxt("file.txt",data)
+    #T_history=np.transpose(T_history)
+    T_history = np.round(T_history*1000)
 
+    DATA = np.concatenate((T_history,Position),axis=1)
+    DATA = np.concatenate((DATA,Rotation),axis=1)
+
+
+
+    dT = pd.DataFrame(DATA)
+    dT.to_csv('DATA.csv', index=False)
     print("average", np.mean(np.diff(Robot.t[1:])))
 
 

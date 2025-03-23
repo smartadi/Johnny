@@ -9,6 +9,11 @@ from numpy import linalg as LA
 from vicon_dssdk import ViconDataStream
 import argparse
 import sys
+import socket
+
+
+import os
+import logging
 from digi.xbee.devices import XBeeDevice
 from digi.xbee.devices import RemoteZigBeeDevice
 
@@ -25,6 +30,8 @@ import matplotlib.pyplot as plt
 import math
 from scipy.spatial.transform import Rotation as R
 import time
+import csv
+import pandas as pd
 
 event = Event()
 data_lock = Lock()
@@ -442,7 +449,7 @@ class Server:
 
         self.stop = False
         # self.live_plot(True)
-        self.t = np.zeros((1,50), dtype = float)
+        self.t = np.zeros((1,2000), dtype = float)
 
         self.johnny_update()
         self.johnny_control()
@@ -458,6 +465,9 @@ class Server:
 
         self.cycle_update()
         self.cycle_control()
+
+
+
 
 
     def johnny_update(self): #updating the state
@@ -508,6 +518,18 @@ class Server:
         for subName in self.subjectNames:
 
 
+            T = self.t[0]
+            T_last=T[-1]
+            #print(T_last)
+
+
+
+
+
+
+
+
+
 
             ref_vrot = self.ref[subName][1]
             ref_vel = self.ref[subName][0]
@@ -515,7 +537,6 @@ class Server:
             rot=self.mover[subName][1]
             vflp=self.mover[subName][2]
 
-            T = self.t[0]
 
 
             Rz = R.from_euler('z', rot[2], degrees=False).as_matrix()
@@ -548,7 +569,8 @@ class Server:
 
             P_des = np.array([-35.1, 68.5, 7.6])  # desired position in cm
             P_des = np.array([23.8, 58.8, 7.9])  # desired position in cm
-            P_des = self.mover['Johnny07'][0]/10
+            P_des = np.array([75.4, -8.9, 8.6])
+            #P_des = self.mover['Johnny07'][0]/10
             P=pos[0:2]/1000 #in m
 
             # obstacle avoidance with APF
@@ -590,18 +612,17 @@ class Server:
 
 
             # to test each johnny, enter the name and the desired values
-            self.ref['Johnny07'][1] = 0 # angular rate
-            self.ref['Johnny07'][0] = 0 # linear velocity
-            self.ref['Johnny08'][1] = ref_vrot_comm
-            self.ref['Johnny08'][0] = ref_vel_comm
-            #self.ref['Johnny08'][1] = 0
-            #self.ref['Johnny08'][0] = 0
+            self.ref['Johnny07'][1] = 3 # angular rate
+            self.ref['Johnny07'][0] = 5 # linear velocity
+            #self.ref['Johnny04'][1] = 10
+            #self.ref['Johnny04'][0] = ref_vel_comm
+            #self.ref['Johnny08'][1] = ref_vrot_comm
+            #self.ref['Johnny08'][0] = ref_vel_comm
             ref_vrot = self.ref[subName][1]
             ref_vel = self.ref[subName][0]
-            print(subName + '  Linear_velocity: ' + str(ref_vel[0])+'   Angular velocity:  ' + str(ref_vrot[2])+'  Pos  '+ str(pos)+ '  P_des  '+str(P_des))
-
-
-
+            #print(subName + '  Linear_velocity: ' + str(ref_vel[0])+'   Angular velocity:  ' + str(ref_vrot[2])+'  Pos  '+ str(pos/10)+ '  P_des  '+str(P_des))
+            #print(subName + '  Linear_velocity: ' + str(ref_vel[0]) + '   Angular velocity:  ' + str(
+                #ref_vrot[2]) + '  Pos  ' + str(self.pdata) + '  t  ' + str(self.t))
 
             # enter the desired angular and translational velocities for testing (deg/s, cm/s)
             #ref_vel[0] = 0
@@ -645,24 +666,39 @@ class Server:
 
 
             Kpv = 10
-            Kpw = 2
+            Kpw = 6 #2
 
             # derivative
             Kdv = 0.1
-            Kdw = 0.3
+            Kdw = 0.3 #0.3
 
             # integral
             Kiv = 0.1 #0.01
-            Kiw = 0.05 #0.005
+            Kiw = 0.05 #0.05
 
             Kkv = 50
             Kkw = 1
 
+            Kpv = 10
+            #Kpw = 2
+
+            # derivative
+            Kdv = 0.1
+            #Kdw = 0.3
+
+            # integral
+            Kiv = 0.1 #0.01
+            #Kiw = 0.05 #0.005
+
+            Kkv = 50
+            Kkw = 1
 
             Ew[-1] = (ref_vrot[2] - vr[2]) # transfer error to degree
 
+            # velocity controller
+            #data_v = data_v     +     (Kpv*Ev[-1] + Kdv * (Ev[-1] - Ev[-2]) + Kiv * sum(Ev))/500
 
-            vel = (Kkv*np.linalg.norm(ref_vel[0]))      +     (Kpv*Ev[-1] + Kdv * (Ev[-1] - Ev[-2]) + Kiv * sum(Ev))/500
+            # angular rate controller (normal reference value + )
             data_rz = data_rz + Kpw * Ew[-1] + Kdw * (Ew[-1] - Ew[-2]) + np.minimum(Kiw * 1, Kiw * sum(Ew))
             data_rz=round(data_rz)
 
@@ -680,15 +716,13 @@ class Server:
 
 
     @threaded
-
-
-
     def get_agents(self):
         # get agent names
         return self.subjectNames
 
     def get_frame(self):
         print('Vicon frame')
+
 
     def send_data(self):
         # broadcast
@@ -701,7 +735,7 @@ class Server:
             # print(name)
             # d = str(self.mover[name][0])+ ',' + str(self.mover[name][1])
             d = str(self.data[name][0]) + "," + str(self.data[name][1])
-            print( name + '  d= ',d)
+            #print( name + '  d= ',d)
             self.xbee.send_data_async(self.remote_devicess[i], d)
             # print('DATA')
             # print(name)
@@ -715,37 +749,21 @@ class Server:
     def cycle_update(self):
         while (True):
             self.johnny_update()
-            #dt_max = np.max(np.diff(self.t))
-            #self.johnny_control()
             self.send_data()
-            #print('dt_max :' + str(dt_max))
             if self.stop == True:
                 break
 
-            #dt=np.diff(self.t)
-            #dt_mean=np.mean(dt)
-            #dt_var=np.var(dt)
-            #dt_max = np.max(dt)
-            #print('dt_mean : '+str(dt_mean)+ ' dt_var : '+str(dt_var)+' dt_max : '+str(dt_max))
-            #print('cycle11')
 
 
     @threaded # this thread is only for control and sending the data
     def cycle_control(self):
         while (True):
-            #sleep(0.05)
-            #self.johnny_update()
-            #dt_max = np.max(np.diff(self.t))
             self.johnny_control()
-            # self.send_data()
-            #print('dt_max :' + str(dt_max))
             if self.stop == True:
                 break
-            #dt=np.mean(np.diff(self.t))
-            # print('dt: '+str(dt))
-            #print('cycle22')
 
-
+    def get_pdata(self):
+        return self.pdata
     def get_estimate(self):
         # print('')
         # return np.array([self.t, self.mover])
@@ -766,14 +784,18 @@ class Server:
             # Robot.ref[name] = np.array([[0,0,0],[0,0,0]])
             self.ref.update({name: np.array([[0, 0, 0], [0, 0, 0]])})
             self.vfilter.update({name: np.zeros((10, 3))})
-            self.pdata.update({name: np.zeros((20, 3))})
+            self.pdata.update({name: np.zeros((2000, 3))})
             self.rfilter.update({name: np.zeros((4, 3))})
-
+            #self.t = np.zeros((1, 2000), dtype=float)
+            #self.t.update({name: np.zeros((1, 2000))})
             # store proportional and derivative errors
             self.error_vals.update({name: np.zeros((2, 50))})
 
             # store integral errors
             self.integral_vals.update({name: np.zeros((2, 50))})
+
+
+
 
     def filtercycle(self):
         for i in range(100):
@@ -805,6 +827,16 @@ class Server:
 
 # Press the green button in the gutter to run the script.
 if __name__ == '__main__':
+
+
+
+    Samp_Num = 800 # enter the desired number of samples
+
+
+
+
+
+
     print('PyCharm')
 
     Robot = Server()
@@ -821,10 +853,16 @@ if __name__ == '__main__':
     t0 = time.time()
     print("start")
     print(t0 - time.time())
-    D = 100
-    T_history = [0]
+    D = 20
+    T_history = np.array([[0]])
     # data = np.zeros((1,10000))
     counter = 1
+    Position = np.array([[0, 0]])
+    Rotation = np.array([[0]])
+    Distance_PNT = np.array([[0,0,0]])
+    Distance_vicon = np.array([[0, 0, 0]])
+    #os.system("TELNET 172.20.10.3 23 -f " + str(time.time()))
+    #os.system("sen s")
     while( time.time()-t0 < D):
         t = time.time()
         T = time.time()-t0
@@ -833,12 +871,19 @@ if __name__ == '__main__':
 
 
         for name in Robot.subjectNames:
+            T = np.array([[T]])
+
             a = Robot.get_estimate()
             # print(a)
             p = a[name][0][:2]
+            p_array = np.array([p])
+
             v = a[name][2][0]  # convert to m/s
             r = a[name][1][2]
             w = a[name][3][2]
+            r_array = np.array([[r]])
+
+
 
             # print(v)
 
@@ -865,11 +910,44 @@ if __name__ == '__main__':
             #Robot.ref['Johnny07'] = np.array([[0, 0.0, 0.0], [0.0, 0.0, 0]])
             #print(type(name))
             #Robot.ref['Johnny08'] = np.array([[0, 0.0, 0.0], [0.0, 0.0, 0]])
+
+            data = 0
+
+
+            Position = np.concatenate((Position, p_array), axis=0)
+            T_history = np.concatenate((T_history, T), axis=0)
+            Rotation = np.concatenate((Rotation,r_array),axis=0)
+
+
+
+            p = a[name][0][:3]
+            p_array = np.array([p])/1000
+            markerA = np.array([[-29.8673472,  -56.01771451, 2.608*100-7.86554049]])/100
+            markerB = np.array([[-77.60075907, 136.31153715, 2.608 * 100 - 7.86554049]]) / 100
+            markerC = np.array([[98.25260942,  0.90669935, 2.608 * 100 - 7.86554049]]) / 100
+            #Dist_vicon = LA.norm(p_array-markerA)*100
+            Dist_vicon = np.array([[LA.norm(p_array-markerA)*100, LA.norm(p_array-markerB)*100, LA.norm(p_array-markerC)*100]])
+            #2.608
+            #[58.92312925 128.27988516   7.40130789]
+            #reset rx tx
+            print(" Progress: "+str(np.round(T_history.size/Samp_Num*100)))
+        if T_history.size >= Samp_Num:
+            break
+
     Robot.plot = False
     Robot.stop = True
 
     # np.savetxt("file.txt",data)
+    #T_history=np.transpose(T_history)
+    T_history = np.round(T_history*1000)
 
+    DATA = np.concatenate((T_history,Position),axis=1)
+    DATA = np.concatenate((DATA,Rotation),axis=1)
+
+
+
+    dT = pd.DataFrame(DATA)
+    dT.to_csv('DATA.csv', index=False)
     print("average", np.mean(np.diff(Robot.t[1:])))
 
 

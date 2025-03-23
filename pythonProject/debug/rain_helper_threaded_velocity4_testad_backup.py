@@ -216,6 +216,8 @@ def vel_filter2(f, m):
     # print(x1)
     # print(x2)
     return y0, f
+
+
 def vel_filter(f, m):
     y1 = f[0, :]
     y2 = f[1, :]

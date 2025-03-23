@@ -2,7 +2,10 @@ import time
 from matplotlib import pyplot as plt
 import numpy as np
 
-
+def onclick(event):
+    print('%s click: button=%d, x=%d, y=%d, xdata=%f, ydata=%f' %
+          ('double' if event.dblclick else 'single', event.button,
+           event.x, event.y, event.xdata, event.ydata))
 def live_update_demo(blit = False):
     x = np.linspace(0,50., num=100)
     X,Y = np.meshgrid(x,x)
@@ -18,7 +21,7 @@ def live_update_demo(blit = False):
 
     ax2.set_xlim(x.min(), x.max())
     ax2.set_ylim([-1.1, 1.1])
-
+    cid = fig.canvas.mpl_connect('button_press_event', onclick)
     fig.canvas.draw()   # note that the first draw comes before setting data
 
 
